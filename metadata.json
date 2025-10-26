@@ -1,0 +1,5 @@
+{
+  "name": "Tax Code Explorer",
+  "description": "A modern, interactive web application for browsing and understanding the ITAA1997 tax code. Search and navigate through the code, and click on defined terms or section references to get instant context and definitions in a side panel.",
+  "requestFramePermissions": []
+}
