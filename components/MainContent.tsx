@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState, useRef, useEffect } from 'react';
 import type { TaxDataObject } from '../types';
 import { ProcessedData } from '../utils/dataProcessor';
 import InteractiveContent from './InteractiveContent';
@@ -13,11 +13,40 @@ interface MainContentProps {
 }
 
 const MainContent: React.FC<MainContentProps> = ({ node, processedData, onReferenceClick, onTermClick, onSelectNode }) => {
+  const [visibleChildrenCount, setVisibleChildrenCount] = useState(10);
+  const observer = useRef<IntersectionObserver>();
+
   const children = useMemo(() => {
     if (!node) return [];
-    const childIds = processedData.childrenMap.get(node.internal_id) || [];
-    return childIds.map(id => processedData.nodeMapByInternalId.get(id)!).filter(Boolean);
+
+    const getAllDescendants = (nodeId: string): TaxDataObject[] => {
+      const directChildrenIds = processedData.childrenMap.get(nodeId) || [];
+      const directChildren = directChildrenIds.map(id => processedData.nodeMapByInternalId.get(id)!).filter(Boolean);
+
+      let allChildren: TaxDataObject[] = [];
+      directChildren.forEach(child => {
+        allChildren.push(child);
+        allChildren = allChildren.concat(getAllDescendants(child.internal_id));
+      });
+      return allChildren;
+    };
+
+    return getAllDescendants(node.internal_id);
   }, [node, processedData]);
+
+  useEffect(() => {
+    setVisibleChildrenCount(10);
+  }, [node]);
+
+  const lastChildElementRef = useCallback(node => {
+    if (observer.current) observer.current.disconnect();
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && visibleChildrenCount < children.length) {
+        setVisibleChildrenCount(prevCount => prevCount + 10);
+      }
+    });
+    if (node) observer.current.observe(node);
+  }, [visibleChildrenCount, children.length]);
 
   const breadcrumbs = useMemo(() => {
     if (!node) return [];
@@ -89,18 +118,26 @@ const MainContent: React.FC<MainContentProps> = ({ node, processedData, onRefere
 
       {children.length > 0 && (
         <div className="mt-8 pt-6 border-t border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-200 mb-4">In this {node.type}:</h2>
-          <div className="space-y-4">
-            {children.map(child => (
-              <div key={child.internal_id} className="p-4 rounded-lg bg-gray-800 border border-gray-700">
-                <button onClick={() => onSelectNode(child.internal_id)} className="w-full text-left">
-                  <h3 className="text-lg font-bold text-blue-400 hover:underline">{child.title}</h3>
-                  <p className="text-xs text-gray-500 font-mono mt-1">{child.ref_id}</p>
-                  <p className="mt-2 text-sm text-gray-400 line-clamp-3">{child.content_md.replace(/(\r\n|\n|\r)/gm, " ").substring(0, 200)}...</p>
-                </button>
+          {children.slice(0, visibleChildrenCount).map((child, index) => (
+            <div
+              key={child.internal_id}
+              className="mt-4"
+              ref={index === visibleChildrenCount - 1 ? lastChildElementRef : null}
+            >
+              <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
+                <h2 className="text-xl md:text-2xl font-bold text-gray-100 mt-1">{child.title}</h2>
+                {child.ref_id && <p className="text-xs text-gray-500 font-mono mt-2">{child.ref_id}</p>}
               </div>
-            ))}
-          </div>
+              <div className="mt-4 text-gray-300 leading-relaxed">
+                <InteractiveContent
+                  key={child.internal_id}
+                  node={child}
+                  onReferenceClick={onReferenceClick}
+                  onTermClick={onTermClick}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
