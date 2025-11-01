@@ -118,11 +118,6 @@ class DatabaseLoader:
             logger.info("Bulk inserting provisions...")
             # bulk_insert_mappings is efficient for large inserts
             if provisions_payload:
-                # Ensure LTree path is explicitly a string before bulk insert
-                for provision in provisions_payload:
-                    if 'hierarchy_path_ltree' in provision and not isinstance(provision['hierarchy_path_ltree'], str):
-                         provision['hierarchy_path_ltree'] = str(provision['hierarchy_path_ltree'])
-
                 db.bulk_insert_mappings(Provision, provisions_payload)
                 db.commit()
                 logger.info(f"Successfully inserted {len(provisions_payload)} provisions.")

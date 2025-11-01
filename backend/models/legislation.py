@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, Integer, Text, Float, Index, ForeignKey, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, LTREE
-from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy_utils import LtreeType as LTREE
+from sqlalchemy.orm import relationship, backref
 from backend.database import Base
 
 class Act(Base):
@@ -37,11 +38,11 @@ class Provision(Base):
 
     # Relationships
     act = relationship("Act", back_populates="provisions")
-    children = relationship("Provision", backref=relationship("parent", remote_side=[internal_id]))
+    children = relationship("Provision", backref=backref("parent", remote_side=[internal_id]))
 
     references_to = relationship("Reference", foreign_keys="[Reference.source_internal_id]", back_populates="source_provision", cascade="all, delete-orphan")
     referenced_by = relationship("Reference", foreign_keys="[Reference.target_internal_id]", back_populates="target_provision")
-    terms_used = relationship("DefinedTermUsage", back_populates="source_provision", cascade="all, delete-orphan")
+    terms_used = relationship("DefinedTermUsage", foreign_keys="[DefinedTermUsage.source_internal_id]", back_populates="source_provision", cascade="all, delete-orphan")
 
     # Index for LTree path (Crucial for performance)
     __table_args__ = (

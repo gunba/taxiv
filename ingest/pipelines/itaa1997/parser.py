@@ -15,6 +15,18 @@ except ImportError:
     tqdm.write = print
 
 # Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
+from .config import Config
+
+# We use tqdm for progress bars during parsing
+try:
+    from tqdm import tqdm
+except ImportError:
+    # Fallback if tqdm is not installed
+    def tqdm(iterable=None, **kwargs):
+        return iterable if iterable is not None else []
+    tqdm.write = print
+
+# Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
 from ingest.core.utils import iter_block_items, get_indentation, recursive_finalize_structure
 # Import LLM tools needed for the finalization callback
 # We import these here to ensure they are available when finalize_section is called
@@ -22,10 +34,7 @@ from ingest.core.llm_extraction import LLM_CLIENT, process_section_llm_task
 
 # Import pipeline-specific configuration (using relative import)
 # We import the config values directly rather than the module object for clarity
-from .config import (
-    ACT_ID, STYLE_MAP, IGNORE_STYLES, IGNORE_STYLE_PATTERNS,
-    FALLBACK_ASTERISK_REGEX, TITLE_PATTERNS
-)
+config = Config()
 
 # Import docx components
 try:
@@ -52,15 +61,15 @@ DEFINITION_MARKER_REGEX: Optional[Pattern] = None
 
 def should_ignore_style(style_name):
     """Checks if a style should be ignored based on config."""
-    if style_name in IGNORE_STYLES: return True
-    for pattern in IGNORE_STYLE_PATTERNS:
+    if style_name in config.IGNORE_STYLES: return True
+    for pattern in config.IGNORE_STYLE_PATTERNS:
         if style_name.startswith(pattern): return True
     return False
 
 def identify_defined_terms(text: str) -> Set[str]:
     """Identifies asterisked definitions using the appropriate pattern (Compiled or Fallback)."""
     # Use the precise regex if available (Pass 2), otherwise use the fallback (Pass 1).
-    regex_to_use = DEFINITION_MARKER_REGEX if DEFINITION_MARKER_REGEX else FALLBACK_ASTERISK_REGEX
+    regex_to_use = DEFINITION_MARKER_REGEX if DEFINITION_MARKER_REGEX else config.FALLBACK_ASTERISK_REGEX
 
     found_terms = set()
     # Ensure text is a string

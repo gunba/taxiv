@@ -6,9 +6,12 @@ pydantic-settings
 # Database Drivers and ORM
 psycopg2-binary
 SQLAlchemy>=2.0
+sqlalchemy-utils
 
 # Data Processing and Analysis
 networkx
+numpy
+scipy
 
 # Document Parsing & Ingestion
 python-docx

@@ -29,7 +29,7 @@ from .parser import (
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-ACT_ID = "ITAA1997"
+
 ACT_TITLE = "Income Tax Assessment Act 1997"
 
 
@@ -47,14 +47,14 @@ def finalize_definitions_pass1():
             if not DEFINITIONS_995_1[term]["content_md"]:
                 del DEFINITIONS_995_1[term]
 
-def process_and_analyze_definitions_concurrent(pbar_llm, executor):
+def process_and_analyze_definitions_concurrent(pbar_llm, executor, config: Config):
     """
     Applies precise term identification and runs concurrent LLM analysis on definitions.
     (Adapted from process_ita1997.py)
     """
     logger.info("Applying precise term identification and analyzing definitions concurrently (Gemini)...")
     futures = []
-    definition_context = [f"{ACT_ID}:Section:995-1"]
+    definition_context = [f"{config.ACT_ID}:Section:995-1"]
 
     # 1. Re-identify terms using the precise regex and submit LLM tasks
     for term in DEFINITIONS_995_1:
@@ -121,7 +121,7 @@ def run_parsing_and_enrichment(config: Config):
     PHASE A: Executes the two-pass DOCX parsing and concurrent LLM enrichment.
     (Adapted from process_ita1997.py main())
     """
-    logger.info(f"\n=== PHASE A: PARSING AND ENRICHMENT ({ACT_ID}) ===")
+    logger.info(f"\n=== PHASE A: PARSING AND ENRICHMENT ({config.ACT_ID}) ===")
 
     # Setup directories
     os.makedirs(config.OUTPUT_INTERMEDIATE_DIR, exist_ok=True)
@@ -160,7 +160,7 @@ def run_parsing_and_enrichment(config: Config):
         compile_definition_regex() # Updates the global DEFINITION_MARKER_REGEX in .parser
 
         if DEFINITIONS_995_1:
-            process_and_analyze_definitions_concurrent(pbar_llm, executor)
+            process_and_analyze_definitions_concurrent(pbar_llm, executor, config)
 
 
         # --- PASS 2: Full Structure Extraction and Enrichment ---
@@ -265,7 +265,7 @@ def run_analysis_and_loading(config: Config):
     logger.info(f"\n=== PHASE B: ANALYSIS AND LOADING (PostgreSQL) ===")
 
     # Initialize Analyzer
-    analyzer = GraphAnalyzer(default_act_id=ACT_ID)
+    analyzer = GraphAnalyzer(default_act_id=config.ACT_ID)
 
     # --- PASS 1: Load Data and Build Structure (LTree Calculation) ---
     logger.info("\n--- Pass 1: Loading Intermediate Data and Calculating LTree Paths ---")
@@ -277,7 +277,7 @@ def run_analysis_and_loading(config: Config):
     DEFINITIONS_FILE = "definitions_995_1_intermediate.json"
 
     # Sanitize Act ID for LTree root path
-    ACT_LTREE_ROOT = sanitize_for_ltree(ACT_ID)
+    ACT_LTREE_ROOT = sanitize_for_ltree(config.ACT_ID)
 
     # --- Load Volume Files First ---
     # This establishes the main structure and LTree paths.
@@ -309,7 +309,7 @@ def run_analysis_and_loading(config: Config):
                 definitions_data = json.load(f)
 
             # Attempt to find the parent (Section 995-1)
-            parent_ref_id = f"{ACT_ID}:Section:995-1"
+            parent_ref_id = f"{config.ACT_ID}:Section:995-1"
             parent_internal_id = analyzer.generate_internal_id(ref_id_override=parent_ref_id)
 
             if parent_internal_id in analyzer.node_registry:
@@ -326,7 +326,7 @@ def run_analysis_and_loading(config: Config):
                 if not sanitized_term_for_id:
                     sanitized_term_for_id = f"UnnamedTerm_{time.time_ns()}"
 
-                ref_id = f"{ACT_ID}:Definition:{sanitized_term_for_id}"
+                ref_id = f"{config.ACT_ID}:Definition:{sanitized_term_for_id}"
 
                 synthetic_node = {
                     "ref_id": ref_id, "type": "Definition",
@@ -359,7 +359,7 @@ def run_analysis_and_loading(config: Config):
 
     try:
         # Initialize the loader (connects to the DB defined in .env)
-        loader = DatabaseLoader(act_id=ACT_ID, act_title=ACT_TITLE)
+        loader = DatabaseLoader(act_id=config.ACT_ID, act_title=ACT_TITLE)
         # Load the data (Bulk insert)
         loader.load_data(*payloads)
     except Exception as e:

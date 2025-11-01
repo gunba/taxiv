@@ -10,6 +10,7 @@ import logging
 
 # Import normalization functions
 from .normalization import normalize_reference, get_normalization_metrics, reset_normalization_metrics
+from sqlalchemy_utils import Ltree
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,11 @@ def sanitize_for_ltree(identifier):
     sanitized = re.sub(r'[^A-Za-z0-9_]+', '_', str(identifier))
 
     # Ensure it doesn't start/end excessively with underscore
-    sanitized = sanitized.strip('_')
+    sanitized = sanitized.lstrip('_').strip('_')
+
+    # LTree labels cannot start with a digit. Prepend an underscore if it does.
+    if sanitized and sanitized[0].isdigit():
+        sanitized = f"_{sanitized}"
 
     if not sanitized:
          return f"EMPTY_{time.time_ns()}"
@@ -150,7 +155,7 @@ class GraphAnalyzer:
                         self.id_type_registry[registry_key] = node_type
 
             # Store the calculated path and parent link
-            self.node_registry[internal_id]["hierarchy_path_ltree"] = current_ltree_path
+            self.node_registry[internal_id]["hierarchy_path_ltree"] = Ltree(current_ltree_path)
             self.node_registry[internal_id]["parent_internal_id"] = parent_internal_id
 
             # Add CONTAINS Edge (For graph structure visualization if needed)
@@ -159,7 +164,11 @@ class GraphAnalyzer:
 
         else:
             # If node already exists (e.g., definitions processed before main structure), retrieve its path for children processing
-            current_ltree_path = self.node_registry[internal_id].get("hierarchy_path_ltree", ltree_path)
+            retrieved_ltree = self.node_registry[internal_id].get("hierarchy_path_ltree")
+            if isinstance(retrieved_ltree, Ltree):
+                current_ltree_path = str(retrieved_ltree)
+            else:
+                current_ltree_path = ltree_path
 
 
         # Recurse into children
@@ -315,6 +324,8 @@ class GraphAnalyzer:
             pagerank = pagerank_scores.get(internal_id, 0.0)
 
             source_ref_id = node_data.get("ref_id")
+            # Ensure ref_id is never None, use internal_id as fallback for non-canonical items
+            final_ref_id = source_ref_id if source_ref_id is not None else internal_id
 
             # --- Process References (for Reference model) ---
             # We must re-normalize here to ensure consistency and populate the Reference table accurately.
@@ -388,7 +399,7 @@ class GraphAnalyzer:
             provision_data = {
                 "internal_id": internal_id,
                 "act_id": self.default_act_id,
-                "ref_id": source_ref_id,
+                "ref_id": final_ref_id,
                 "type": node_data.get("type"),
                 "local_id": node_data.get("id"), # ADAPTED (was 'id' in source JSON)
                 # Use raw_term if present (for definitions), otherwise fallback to name/title

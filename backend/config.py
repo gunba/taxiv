@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     DB_USER: str
     DB_PASSWORD: str
     DB_NAME: str
+    google_cloud_api_key: str | None = None
 
     ENVIRONMENT: str = "development"
 
