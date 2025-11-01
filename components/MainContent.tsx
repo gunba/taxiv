@@ -29,14 +29,16 @@ const MainContent: React.FC<MainContentProps> = ({
   const [isSentinelVisible, setIsSentinelVisible] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const rootIdRef = useRef<string | null>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
 
   const topProvision = renderedNodes[0] ?? null;
 
   // Scroll to top when the node changes
   useEffect(() => {
-    const mainElement = document.querySelector('main');
+    const mainElement = document.querySelector('main') as HTMLElement | null;
+    scrollContainerRef.current = mainElement;
     if (mainElement) {
-      mainElement.scrollTo(0, 0);
+      mainElement.scrollTo({ top: 0 });
     }
   }, [node]);
 
@@ -84,8 +86,15 @@ const MainContent: React.FC<MainContentProps> = ({
   // Observe the sentinel for lazy loading
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel) {
+    const scrollContainer =
+      scrollContainerRef.current ?? (document.querySelector('main') as HTMLElement | null);
+
+    if (!sentinel || !scrollContainer) {
       return;
+    }
+
+    if (!scrollContainerRef.current) {
+      scrollContainerRef.current = scrollContainer;
     }
 
     const observer = new IntersectionObserver(
@@ -96,7 +105,7 @@ const MainContent: React.FC<MainContentProps> = ({
         }
       },
       {
-        root: null,
+        root: scrollContainer,
         rootMargin: '400px 0px',
       }
     );
@@ -106,7 +115,7 @@ const MainContent: React.FC<MainContentProps> = ({
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [node]);
 
   const copyToClipboard = useCallback(() => {
     if (!topProvision || !topProvision.content_md) return;
