@@ -1,0 +1,58 @@
+# backend/schemas.py
+from pydantic import BaseModel
+from typing import List, Optional, Dict
+
+class ORMBase(BaseModel):
+    class Config:
+        from_attributes = True # Pydantic v2 compatibility with SQLAlchemy
+
+class ActList(ORMBase):
+    id: str
+    title: str
+
+# Schemas for related data serialization (structured for frontend consumption)
+class ReferenceToDetail(BaseModel):
+    target_ref_id: str
+    snippet: Optional[str]
+    target_title: Optional[str] # Populated in CRUD
+
+class ReferencedByDetail(BaseModel):
+    source_internal_id: str
+    source_ref_id: str
+    source_title: str # Populated in CRUD
+
+class DefinedTermUsageDetail(BaseModel):
+    term_text: str
+    definition_internal_id: Optional[str] # Populated in CRUD
+
+class ProvisionDetail(ORMBase):
+    internal_id: str
+    ref_id: str
+    act_id: str
+    type: str
+    local_id: Optional[str]
+    title: str
+    content_md: Optional[str]
+    level: int
+    # LTree paths must be serialized as strings (handled in CRUD)
+    hierarchy_path_ltree: str
+    parent_internal_id: Optional[str]
+
+    # Metrics
+    pagerank: float
+    in_degree: int
+    out_degree: int
+
+    # Related Data (Populated in CRUD)
+    references_to: List[ReferenceToDetail] = []
+    referenced_by: List[ReferencedByDetail] = []
+    defined_terms_used: List[DefinedTermUsageDetail] = []
+
+
+class ProvisionHierarchy(ORMBase):
+    """A lightweight model just for the navigation hierarchy."""
+    internal_id: str
+    ref_id: str
+    title: str
+    type: str
+    has_children: bool # Calculated in CRUD

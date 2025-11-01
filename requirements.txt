@@ -1,0 +1,19 @@
+# Web Framework (For the backend API)
+fastapi
+uvicorn[standard]
+pydantic-settings
+
+# Database Drivers and ORM
+psycopg2-binary
+SQLAlchemy>=2.0
+
+# Data Processing and Analysis
+networkx
+
+# Document Parsing & Ingestion
+python-docx
+tqdm
+python-dotenv
+
+# Google AI
+google-generativeai

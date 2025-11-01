@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Database Service (PostgreSQL)
+  db:
+    image: postgres:15-alpine
+    container_name: taxiv_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend Service (FastAPI/Python/Ingestion)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: taxiv_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Override CMD for development: enable live reloading
+    command: uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+    volumes:
+      # Mount the code for live reloading and access to data directories
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Frontend Service (React/Vite)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: taxiv_frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Mount local code for live reloading (excluding node_modules)
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
