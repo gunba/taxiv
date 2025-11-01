@@ -56,3 +56,8 @@ class ProvisionHierarchy(ORMBase):
     title: str
     type: str
     has_children: bool # Calculated in CRUD
+
+
+class BreadcrumbItem(BaseModel):
+    internal_id: str
+    title: str

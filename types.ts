@@ -51,10 +51,13 @@ export interface HierarchyNode {
   title: string;
   type: string;
   has_children: boolean;
+  // Added optional children property to support the tree structure returned by the search API
+  children?: HierarchyNode[];
 }
 
 
+// Updated DetailViewContent type to include termText for better display when type is 'term'
 export type DetailViewContent =
 | { type: 'reference'; data: TaxDataObject }
-| { type: 'term'; data: TaxDataObject }
+| { type: 'term'; data: TaxDataObject; termText: string }
 | { type: 'error'; data: string };

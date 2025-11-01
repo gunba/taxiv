@@ -41,3 +41,5 @@ When instructed to adopt a role, utilize the specialized focus described below.
 ## 4. Context Injection
 
 You must consult the relevant guidelines before starting a task. If the user asks you to work on the frontend, you MUST review `frontend_architecture.md`. If working on the backend, review `backend_architecture.md`. Always review `testing_standards.md` and `general_best_practices.md`.
+
+This project uses `docker compose` (with a space) instead of the older `docker-compose` (with a hyphen).

@@ -1,17 +1,28 @@
 // components/MainContent.tsx
-import React, { useMemo, useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { TaxDataObject } from '../types';
+import InteractiveContent from './InteractiveContent';
+import { ClipboardIcon, ChevronRightIcon } from './Icons';
 
 interface MainContentProps {
   node: TaxDataObject | null;
+  // Added breadcrumbs prop
+  breadcrumbs: { internal_id: string; title: string }[];
   isLoading: boolean;
-  // We pass internal IDs directly for interaction
-  onReferenceClick: (internalId: string) => void;
-  onTermClick: (definitionInternalId: string) => void;
+  // Handlers for InteractiveContent
+  onTermClick: (definitionInternalId: string, termText: string) => void;
+  onReferenceByRefIdClick: (refId: string) => void;
   onSelectNode: (nodeId: string) => void;
 }
 
-const MainContent: React.FC<MainContentProps> = ({ node, isLoading, onReferenceClick, onTermClick, onSelectNode }) => {
+const MainContent: React.FC<MainContentProps> = ({
+    node,
+    breadcrumbs,
+    isLoading,
+    onTermClick,
+    onReferenceByRefIdClick,
+    onSelectNode
+}) => {
 
   // Scroll to top when the node changes
   useEffect(() => {
@@ -21,56 +32,15 @@ const MainContent: React.FC<MainContentProps> = ({ node, isLoading, onReferenceC
     }
   }, [node]);
 
-  // Process content to make defined terms clickable (using regex replacement)
-  const processedContent = useMemo(() => {
-    if (!node || !node.content_md) return "";
-
-    let content = node.content_md;
-    const terms = node.defined_terms_used;
-
-    if (terms.length === 0) return content;
-
-    // Create a map for quick lookup: term text (lowercase) -> definition internal ID
-    const termMap = new Map<string, string | null>();
-    terms.forEach(t => termMap.set(t.term_text.toLowerCase(), t.definition_internal_id));
-
-    // Regex to find asterisked terms. Must match the pattern used during ingestion.
-    const regex = /(?:^|[\s\(])\*(?<term>[a-zA-Z0-9\s\-\(\)]+?)(?=[\s,.;:)]|$)/g;
-
-    // Replacement function
-    content = content.replace(regex, (match) => {
-      // Determine the prefix (if any) and the actual term text
-      const prefix = match.startsWith('*') ? '' : match[0];
-      const actualTermText = match.substring(prefix.length + 1);
-
-      const normalizedTerm = actualTermText.trim().toLowerCase();
-
-      // Check if this term instance is defined and has an internal ID
-      if (termMap.has(normalizedTerm)) {
-        const definitionId = termMap.get(normalizedTerm);
-        if (definitionId) {
-          // Create a clickable span using a custom data attribute for event delegation
-          // The CSS for .defined-term is in index.html
-          return `${prefix}<span class="defined-term" data-definition-id="${definitionId}">*${actualTermText}</span>`;
-        }
-      }
-      // If not defined or no ID, return the original match
-      return match;
-    });
-
-    return content;
+  // Copy to Clipboard functionality (Restored from original)
+  const copyToClipboard = useCallback(() => {
+    if (!node || !node.content_md) return;
+    // Note: Unlike the original, this only copies the current provision content, as descendant data is not fetched here due to the new architecture.
+    const markdown = `# ${node.title}\n\n${node.content_md}\n\n`;
+    navigator.clipboard.writeText(markdown).then(() => {
+      // Optional: Show a "copied!" notification
+    }).catch(err => console.error('Failed to copy text: ', err));
   }, [node]);
-
-
-  const handleContentClick = (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
-    const target = event.target as HTMLElement;
-
-    // Handle clicks on defined terms (event delegation)
-    if (target.classList.contains('defined-term') && target.dataset.definitionId) {
-      event.preventDefault();
-      onTermClick(target.dataset.definitionId);
-    }
-  };
 
 
   if (isLoading) {
@@ -78,44 +48,58 @@ const MainContent: React.FC<MainContentProps> = ({ node, isLoading, onReferenceC
   }
 
   if (!node) {
-    return <div className="p-8 text-center text-gray-400">Select a provision from the side navigation.</div>;
+    // Welcome message restored from original
+    return (
+      <div className="p-8 text-center text-gray-400">
+        <h2 className="text-2xl font-semibold">Welcome to the Tax Code Explorer</h2>
+        <p className="mt-2">Select an item from the navigation panel on the left to view its content here.</p>
+      </div>
+    );
   }
 
+  // Layout restored from original
   return (
-    <article className="p-8 max-w-4xl mx-auto">
+    <div className="p-6 md:p-8">
+      {/* Header area with Breadcrumbs and Copy button */}
+      <div className="flex items-center justify-between pb-4 mb-4 border-b border-gray-700">
+        <div className="flex items-center text-sm text-gray-400 overflow-hidden">
+            {/* Breadcrumbs display */}
+            {breadcrumbs.length > 0 ? breadcrumbs.map((crumb, index) => (
+                <React.Fragment key={crumb.internal_id}>
+                    <button onClick={() => onSelectNode(crumb.internal_id)} className="truncate hover:underline whitespace-nowrap">
+                        {crumb.title}
+                    </button>
+                    {index < breadcrumbs.length - 1 && <ChevronRightIcon className="w-4 h-4 mx-1 shrink-0" />}
+                </React.Fragment>
+            )) : (
+                <span className="text-gray-500 text-xs">(Loading breadcrumbs or API unavailable)</span>
+            )}
+        </div>
+        <button onClick={copyToClipboard} className="p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors shrink-0 ml-4" aria-label="Copy content to clipboard">
+          <ClipboardIcon className="w-5 h-5" />
+        </button>
+      </div>
 
-    <header className="mb-6">
-    <h1 className="text-3xl font-bold text-gray-100 mb-2">{node.title}</h1>
-    {node.ref_id && (
-      <p className="text-sm text-gray-500">{node.ref_id} ({node.type})</p>
-    )}
-    </header>
+      {/* Title area */}
+      <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
+        <p className="text-sm font-semibold text-blue-400">{node.type}</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-100 mt-1">{node.title}</h1>
+        {node.ref_id && <p className="text-xs text-gray-500 font-mono mt-2">{node.ref_id}</p>}
+      </div>
 
-    {/* Render the processed content as HTML (required for the interactive spans) */}
-    <div className="prose prose-invert max-w-none mb-8" onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: processedContent }} />
+      {/* Content Rendering using InteractiveContent */}
+      <div className="mt-4 text-gray-300 leading-relaxed prose prose-invert max-w-none">
+        <InteractiveContent
+          key={node.internal_id}
+          node={node}
+          onTermClick={onTermClick}
+          onReferenceByRefIdClick={onReferenceByRefIdClick}
+        />
+      </div>
 
-    {/* Display References (Updated structure) */}
-    {node.references_to.length > 0 && (
-      <section className="mt-8 pt-6 border-t border-gray-700">
-      <h2 className="text-xl font-semibold text-gray-100 mb-4">References To ({node.references_to.length})</h2>
-      <ul className="space-y-3">
-      {node.references_to.map((ref, index) => (
-        <li key={index} className="text-sm bg-gray-800 p-3 rounded">
-        {/* Interaction is complex here as we don't have the target internal_id, only the ref_id.
-          We display the info; actual navigation requires lookup which is better handled in DetailView if needed. */}
-          <span className="font-medium text-blue-400">
-          {ref.target_ref_id}
-          </span>
-          <span className="text-gray-400 ml-2">({ref.target_title || "External/Missing Reference"})</span>
-          {ref.snippet && (
-            <p className="text-gray-500 mt-1 italic">Context: "{ref.snippet}"</p>
-          )}
-          </li>
-      ))}
-      </ul>
-      </section>
-    )}
-    </article>
+      {/* Note: The original infinite scroll display of children is omitted as it is incompatible with the API's single-provision detail endpoint architecture. */}
+
+    </div>
   );
 };
 

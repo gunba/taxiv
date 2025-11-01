@@ -4,34 +4,53 @@ import type { TaxDataObject, HierarchyNode } from '../types';
 // We use the path '/api' which Vite proxies to the backend container.
 const API_BASE_PATH = '/api';
 
-async function fetchJson<T>(path: string): Promise<T> {
-    const url = `${API_BASE_PATH}${path}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-        let errorText = response.statusText;
-        try {
-            const errorBody = await response.json();
-            if (errorBody.detail) {
-                errorText = errorBody.detail;
-            }
-        } catch (e) {
-            // Ignore parsing error
-        }
-        throw new Error(`API request failed: ${response.status} - ${errorText}`);
-    }
-    return response.json() as Promise<T>;
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unable to read error response body');
+    console.error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+    throw new Error(`API request failed with status ${response.status}. Details: ${errorText}`);
+  }
+  return response.json() as Promise<T>;
 }
 
 export const api = {
     getHierarchy: async (actId: string, parentId?: string): Promise<HierarchyNode[]> => {
-        const params = new URLSearchParams({ act_id: actId });
+        const url = new URL(`${API_BASE_PATH}/provisions/hierarchy/${actId}`, window.location.origin);
         if (parentId) {
-            params.append('parent_id', parentId);
+            url.searchParams.append('parent_id', parentId);
         }
-        return fetchJson<HierarchyNode[]>(`/hierarchy?${params.toString()}`);
+        const response = await fetch(url.toString());
+        return handleResponse<HierarchyNode[]>(response);
     },
 
     getProvisionDetail: async (internalId: string): Promise<TaxDataObject> => {
-        return fetchJson<TaxDataObject>(`/provisions/${internalId}`);
+        const response = await fetch(`${API_BASE_PATH}/provisions/detail/${internalId}`);
+        return handleResponse<TaxDataObject>(response);
     },
+
+    getProvisionByRefId: async (refId: string, actId: string): Promise<TaxDataObject> => {
+        const url = new URL(`${API_BASE_PATH}/provisions/lookup`, window.location.origin);
+        url.searchParams.append('ref_id', refId);
+        url.searchParams.append('act_id', actId);
+
+        const response = await fetch(url.toString());
+        const results = await handleResponse<TaxDataObject[]>(response);
+        if (results.length === 0) {
+            throw new Error(`Provision not found for Ref ID: ${refId} in Act: ${actId}`);
+        }
+        return results[0];
+    },
+
+    searchHierarchy: async (actId: string, query: string): Promise<HierarchyNode[]> => {
+        const url = new URL(`${API_BASE_PATH}/provisions/search_hierarchy/${actId}`, window.location.origin);
+        url.searchParams.append('query', query);
+
+        const response = await fetch(url.toString());
+        return handleResponse<HierarchyNode[]>(response);
+    },
+
+    getBreadcrumbs: async (internalId: string): Promise<{ internal_id: string; title: string }[]> => {
+        const response = await fetch(`${API_BASE_PATH}/provisions/breadcrumbs/${internalId}`);
+        return handleResponse<{ internal_id: string; title: string }[]>(response);
+    }
 };

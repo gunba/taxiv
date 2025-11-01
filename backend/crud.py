@@ -1,8 +1,10 @@
 # backend/crud.py
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy import func, case
+from sqlalchemy_utils.types.ltree import LtreeType
+from sqlalchemy_utils import Ltree
 from backend.models import legislation as models
-from backend.schemas import ProvisionDetail, ProvisionHierarchy, ActList, ReferenceToDetail, ReferencedByDetail, DefinedTermUsageDetail
+from backend.schemas import ProvisionDetail, ProvisionHierarchy, ActList, ReferenceToDetail, ReferencedByDetail, DefinedTermUsageDetail, BreadcrumbItem
 from typing import List, Optional
 import logging
 
@@ -10,6 +12,106 @@ logger = logging.getLogger(__name__)
 
 def get_acts(db: Session) -> List[models.Act]:
     return db.query(models.Act).all()
+
+def get_provision_by_ref_id(db: Session, ref_id: str, act_id: str) -> List[ProvisionDetail]:
+    """
+    Finds a provision by its ref_id and act_id.
+    Returns a list as multiple provisions could potentially match, though it's often a single item.
+    """
+    query = db.query(models.Provision).filter(
+        models.Provision.ref_id == ref_id,
+        models.Provision.act_id == act_id
+    )
+    provisions = query.all()
+
+    # Use the detailed constructor for each provision found
+    return [get_provision_detail(db, p.internal_id) for p in provisions if p]
+
+
+def get_breadcrumbs(db: Session, internal_id: str) -> List[BreadcrumbItem]:
+    """
+    Constructs the breadcrumb trail for a given provision using its LTree path.
+    """
+    logger.info(f"Fetching breadcrumbs for internal_id: {internal_id}")
+    target_provision = db.get(models.Provision, internal_id)
+    if not target_provision or not target_provision.hierarchy_path_ltree:
+        logger.warning(f"Provision or hierarchy path not found for {internal_id}")
+        return []
+
+    ancestor_path_str = str(target_provision.hierarchy_path_ltree)
+    ancestor_path = Ltree(ancestor_path_str)
+    logger.info(f"Ancestor path string: {ancestor_path_str}")
+
+    query = db.query(
+        models.Provision.internal_id,
+        models.Provision.title,
+        models.Provision.hierarchy_path_ltree
+    ).filter(
+        models.Provision.hierarchy_path_ltree.op('@>')(ancestor_path)
+    ).order_by(models.Provision.hierarchy_path_ltree)
+
+    # Log the actual query being sent
+    try:
+        from sqlalchemy.dialects import postgresql
+        full_query = query.statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        logger.info(f"Executing breadcrumb query: {full_query}")
+    except Exception as e:
+        logger.error(f"Could not compile breadcrumb query for logging: {e}")
+
+    ancestors = query.all()
+    logger.info(f"Found {len(ancestors)} breadcrumb ancestors.")
+
+    return [BreadcrumbItem(internal_id=a.internal_id, title=a.title) for a in ancestors]
+
+def search_hierarchy(db: Session, act_id: str, query: str) -> List[ProvisionHierarchy]:
+    """
+    Performs a full-text search on provision titles and returns the results in a hierarchical format.
+    It includes all ancestors of the matched nodes to provide context.
+    """
+    if not query:
+        return []
+
+    # 1. Find provisions that match the search query using full-text search
+    # We use to_tsvector for the content and to_tsquery for the query string.
+    matched_provisions_subq = db.query(models.Provision.internal_id).filter(
+        models.Provision.act_id == act_id,
+        func.to_tsvector('english', models.Provision.title).match(func.to_tsquery('english', query))
+    ).subquery()
+
+    # 2. Get the LTree paths of all matched provisions
+    matched_paths_subq = db.query(models.Provision.hierarchy_path_ltree).join(
+        matched_provisions_subq, models.Provision.internal_id == matched_provisions_subq.c.internal_id
+    ).subquery()
+
+    # 3. Find all provisions that are either a match OR an ancestor of a match.
+    # We use the LTree ancestor operator '@>' to find all parents.
+    # We also need to include the matched nodes themselves.
+    union_subq = db.query(matched_paths_subq.c.hierarchy_path_ltree).union(
+        db.query(models.Provision.hierarchy_path_ltree).join(
+            matched_paths_subq, func.text(f"hierarchy_path_ltree @> {matched_paths_subq.c.hierarchy_path_ltree}")
+        )
+    ).subquery()
+
+    # 4. Fetch the final hierarchy data for the combined set of nodes.
+    ChildProvision = aliased(models.Provision)
+    children_exists_subq = db.query(ChildProvision.internal_id)\
+        .filter(ChildProvision.parent_internal_id == models.Provision.internal_id)\
+        .exists().label("has_children")
+
+    results = db.query(
+        models.Provision.internal_id,
+        models.Provision.ref_id,
+        models.Provision.title,
+        models.Provision.type,
+        children_exists_subq
+    ).join(
+        union_subq, models.Provision.hierarchy_path_ltree == union_subq.c.hierarchy_path_ltree
+    ).filter(
+        models.Provision.act_id == act_id
+    ).order_by(models.Provision.hierarchy_path_ltree).all()
+
+    return [ProvisionHierarchy.model_validate(r._asdict()) for r in results]
+
 
 def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDetail]:
     """

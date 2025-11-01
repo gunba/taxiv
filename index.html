@@ -2,23 +2,33 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tax Code Explorer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-      tailwind.config = { /* ... (Existing config) ... */ }
+      /* Configuration restored from the original version */
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'gray-900': '#121212',
+              'gray-800': '#1e1e1e',
+              'gray-700': '#2d2d2d',
+              'gray-600': '#444444',
+              'gray-400': '#999999',
+              'gray-200': '#e0e0e0',
+              /* Ensure colors used by components are available (Tailwind JIT handles this, but good practice) */
+              'blue-400': '#60a5fa',
+              'blue-600': '#2563eb',
+              'blue-900': '#1e3a8a',
+              'green-400': '#4ade80',
+              'green-900': '#14532d',
+            }
+          }
+        }
+      }
     </script>
-    <style>
-      .defined-term {
-        color: #60a5fa; /* Tailwind Blue-400 */
-        cursor: pointer;
-        text-decoration: underline dotted;
-        transition: color 0.2s;
-      }
-      .defined-term:hover {
-        color: #93c5fd; /* Tailwind Blue-300 */
-      }
-    </style>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
