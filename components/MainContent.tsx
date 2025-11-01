@@ -1,146 +1,121 @@
-import React, { useCallback, useMemo, useState, useRef, useEffect } from 'react';
-import type { TaxDataObject } from '../types';
-import { ProcessedData } from '../utils/dataProcessor';
-import InteractiveContent from './InteractiveContent';
-import { ClipboardIcon, ChevronRightIcon } from './Icons';
+// components/MainContent.tsx
+import React, { useMemo, useEffect } from 'react';
+import { TaxDataObject } from '../types';
 
 interface MainContentProps {
   node: TaxDataObject | null;
-  processedData: ProcessedData;
-  onReferenceClick: (refId: string) => void;
-  onTermClick: (term: string) => void;
+  isLoading: boolean;
+  // We pass internal IDs directly for interaction
+  onReferenceClick: (internalId: string) => void;
+  onTermClick: (definitionInternalId: string) => void;
   onSelectNode: (nodeId: string) => void;
 }
 
-const MainContent: React.FC<MainContentProps> = ({ node, processedData, onReferenceClick, onTermClick, onSelectNode }) => {
-  const [visibleChildrenCount, setVisibleChildrenCount] = useState(10);
-  const observer = useRef<IntersectionObserver>();
+const MainContent: React.FC<MainContentProps> = ({ node, isLoading, onReferenceClick, onTermClick, onSelectNode }) => {
 
-  const children = useMemo(() => {
-    if (!node) return [];
-
-    const getAllDescendants = (nodeId: string): TaxDataObject[] => {
-      const directChildrenIds = processedData.childrenMap.get(nodeId) || [];
-      const directChildren = directChildrenIds.map(id => processedData.nodeMapByInternalId.get(id)!).filter(Boolean);
-
-      let allChildren: TaxDataObject[] = [];
-      directChildren.forEach(child => {
-        allChildren.push(child);
-        allChildren = allChildren.concat(getAllDescendants(child.internal_id));
-      });
-      return allChildren;
-    };
-
-    return getAllDescendants(node.internal_id);
-  }, [node, processedData]);
-
+  // Scroll to top when the node changes
   useEffect(() => {
-    setVisibleChildrenCount(10);
+    const mainElement = document.querySelector('main');
+    if (mainElement) {
+      mainElement.scrollTo(0, 0);
+    }
   }, [node]);
 
-  const lastChildElementRef = useCallback(node => {
-    if (observer.current) observer.current.disconnect();
-    observer.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && visibleChildrenCount < children.length) {
-        setVisibleChildrenCount(prevCount => prevCount + 10);
+  // Process content to make defined terms clickable (using regex replacement)
+  const processedContent = useMemo(() => {
+    if (!node || !node.content_md) return "";
+
+    let content = node.content_md;
+    const terms = node.defined_terms_used;
+
+    if (terms.length === 0) return content;
+
+    // Create a map for quick lookup: term text (lowercase) -> definition internal ID
+    const termMap = new Map<string, string | null>();
+    terms.forEach(t => termMap.set(t.term_text.toLowerCase(), t.definition_internal_id));
+
+    // Regex to find asterisked terms. Must match the pattern used during ingestion.
+    const regex = /(?:^|[\s\(])\*(?P<term>[a-zA-Z0-9\s\-\(\)]+?)(?=[\s,.;:)]|$)/g;
+
+    // Replacement function
+    content = content.replace(regex, (match) => {
+      // Determine the prefix (if any) and the actual term text
+      const prefix = match.startsWith('*') ? '' : match[0];
+      const actualTermText = match.substring(prefix.length + 1);
+
+      const normalizedTerm = actualTermText.trim().toLowerCase();
+
+      // Check if this term instance is defined and has an internal ID
+      if (termMap.has(normalizedTerm)) {
+        const definitionId = termMap.get(normalizedTerm);
+        if (definitionId) {
+          // Create a clickable span using a custom data attribute for event delegation
+          // The CSS for .defined-term is in index.html
+          return `${prefix}<span class="defined-term" data-definition-id="${definitionId}">*${actualTermText}</span>`;
+        }
       }
+      // If not defined or no ID, return the original match
+      return match;
     });
-    if (node) observer.current.observe(node);
-  }, [visibleChildrenCount, children.length]);
 
-  const breadcrumbs = useMemo(() => {
-    if (!node) return [];
-    const path = [];
-    let current = node;
-    while(current) {
-        path.unshift(current);
-        if(!current.parent_internal_id) break;
-        current = processedData.nodeMapByInternalId.get(current.parent_internal_id)!;
-    }
-    return path;
-  }, [node, processedData]);
+    return content;
+  }, [node]);
 
-  const copyToClipboard = useCallback(() => {
-    if (!node) return;
-    let markdown = `# ${node.title}\n\n${node.content_md}\n\n`;
-    if (children.length > 0) {
-      markdown += `## Subsections\n\n`;
-      children.forEach(child => {
-        markdown += `### ${child.title}\n\n${child.content_md}\n\n`;
-      });
+
+  const handleContentClick = (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    const target = event.target as HTMLElement;
+
+    // Handle clicks on defined terms (event delegation)
+    if (target.classList.contains('defined-term') && target.dataset.definitionId) {
+      event.preventDefault();
+      onTermClick(target.dataset.definitionId);
     }
-    navigator.clipboard.writeText(markdown).then(() => {
-      // Maybe show a small "copied!" notification
-    }).catch(err => console.error('Failed to copy text: ', err));
-  }, [node, children]);
+  };
+
+
+  if (isLoading) {
+    return <div className="p-8 text-center text-gray-400">Loading provision details...</div>;
+  }
 
   if (!node) {
-    return (
-      <div className="p-8 text-center text-gray-400">
-        <h2 className="text-2xl font-semibold">Welcome to the Tax Code Explorer</h2>
-        <p className="mt-2">Select an item from the navigation panel on the left to view its content here.</p>
-      </div>
-    );
+    return <div className="p-8 text-center text-gray-400">Select a provision from the side navigation.</div>;
   }
 
   return (
-    <div className="p-6 md:p-8">
-      <div className="flex items-center justify-between pb-4 mb-4 border-b border-gray-700">
-        <div className="flex items-center text-sm text-gray-400 overflow-hidden">
-            {breadcrumbs.map((crumb, index) => (
-                <React.Fragment key={crumb.internal_id}>
-                    <button onClick={() => onSelectNode(crumb.internal_id)} className="truncate hover:underline whitespace-nowrap">
-                        {crumb.name}
-                    </button>
-                    {index < breadcrumbs.length - 1 && <ChevronRightIcon className="w-4 h-4 mx-1 shrink-0" />}
-                </React.Fragment>
-            ))}
-        </div>
-        <button onClick={copyToClipboard} className="p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" aria-label="Copy content to clipboard">
-          <ClipboardIcon className="w-5 h-5" />
-        </button>
-      </div>
+    <article className="p-8 max-w-4xl mx-auto">
 
-      <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
-        <p className="text-sm font-semibold text-blue-400">{node.type}</p>
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-100 mt-1">{node.title}</h1>
-        {node.ref_id && <p className="text-xs text-gray-500 font-mono mt-2">{node.ref_id}</p>}
-      </div>
+    <header className="mb-6">
+    <h1 className="text-3xl font-bold text-gray-100 mb-2">{node.title}</h1>
+    {node.ref_id && (
+      <p className="text-sm text-gray-500">{node.ref_id} ({node.type})</p>
+    )}
+    </header>
 
-      <div className="mt-4 text-gray-300 leading-relaxed">
-        <InteractiveContent 
-          key={node.internal_id}
-          node={node}
-          onReferenceClick={onReferenceClick}
-          onTermClick={onTermClick}
-        />
-      </div>
+    {/* Render the processed content as HTML (required for the interactive spans) */}
+    <div className="prose prose-invert max-w-none mb-8" onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: processedContent }} />
 
-      {children.length > 0 && (
-        <div className="mt-8 pt-6 border-t border-gray-700">
-          {children.slice(0, visibleChildrenCount).map((child, index) => (
-            <div
-              key={child.internal_id}
-              className="mt-4"
-              ref={index === visibleChildrenCount - 1 ? lastChildElementRef : null}
-            >
-              <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
-                <h2 className="text-xl md:text-2xl font-bold text-gray-100 mt-1">{child.title}</h2>
-                {child.ref_id && <p className="text-xs text-gray-500 font-mono mt-2">{child.ref_id}</p>}
-              </div>
-              <div className="mt-4 text-gray-300 leading-relaxed">
-                <InteractiveContent
-                  key={child.internal_id}
-                  node={child}
-                  onReferenceClick={onReferenceClick}
-                  onTermClick={onTermClick}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    {/* Display References (Updated structure) */}
+    {node.references_to.length > 0 && (
+      <section className="mt-8 pt-6 border-t border-gray-700">
+      <h2 className="text-xl font-semibold text-gray-100 mb-4">References To ({node.references_to.length})</h2>
+      <ul className="space-y-3">
+      {node.references_to.map((ref, index) => (
+        <li key={index} className="text-sm bg-gray-800 p-3 rounded">
+        {/* Interaction is complex here as we don't have the target internal_id, only the ref_id.
+          We display the info; actual navigation requires lookup which is better handled in DetailView if needed. */}
+          <span className="font-medium text-blue-400">
+          {ref.target_ref_id}
+          </span>
+          <span className="text-gray-400 ml-2">({ref.target_title || "External/Missing Reference"})</span>
+          {ref.snippet && (
+            <p className="text-gray-500 mt-1 italic">Context: "{ref.snippet}"</p>
+          )}
+          </li>
+      ))}
+      </ul>
+      </section>
+    )}
+    </article>
   );
 };
 

@@ -1,20 +1,73 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Taxiv: Tax Code Explorer
 
-# Run and deploy your AI Studio app
+A modern, interactive web application for browsing, analyzing, and understanding Australian tax legislation. This project utilizes a sophisticated ingestion pipeline (Python, Gemini, NetworkX) to process legislation documents into a structured database (PostgreSQL with LTree), served via a backend API (FastAPI) and visualized with a dynamic frontend (React/TypeScript).
 
-This contains everything you need to run your app locally.
+## Architecture
 
-View your app in AI Studio: https://ai.studio/apps/drive/150d1hdAkT6B-s86EYJpTzuHc2vA9A5v_
+The project is structured as a multi-service application managed by Docker Compose:
 
-## Run Locally
+* **Frontend (React/Vite):** A dynamic interface for navigating the tax code hierarchy.
+* **Backend (FastAPI):** Serves the legislation data and handles API requests.
+* **Database (PostgreSQL):** Stores the structured legislation, utilizing the `ltree` extension for efficient hierarchy management.
+* **Ingestion (Python/Gemini):** A modular pipeline located in the `ingest/` directory for processing raw legislation documents.
 
-**Prerequisites:**  Node.js
+## Setup and Running Locally
 
+**Prerequisites:**
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+* Docker and Docker Compose
+* A Google Gemini API Key (for the ingestion process)
+
+### 1. Configuration
+
+1.  Clone the repository.
+2.  Ensure the `.env` file exists in the project root (refer to the provided `.env` structure).
+3.  **Set your `GOOGLE_CLOUD_API_KEY` and `GEMINI_API_KEY`** in the `.env` file.
+
+### 2. Start the Infrastructure
+
+From the project root, build and start the containers:
+
+```bash
+docker-compose up --build -d
+````
+
+Verify the services are running. Ensure the `taxiv_db` service status eventually shows `(healthy)`.
+
+```bash
+docker-compose ps
+```
+
+### 3. Data Ingestion
+
+To use the application, you must first ingest the legislation data.
+
+**A. Place Input Files**
+
+Place the raw DOCX files for the legislation into the corresponding data directory. For ITAA1997:
+
+```
+ingest/data/itaa1997/
+    C2025C00405VOL01.docx
+    ...
+    C2025C00405VOL10.docx
+```
+
+**B. Run the Pipeline**
+
+Execute the ingestion pipeline inside the running `backend` container. This process involves parsing the documents (Phase A) and then analyzing/loading them into the database (Phase B).
+
+```bash
+docker-compose exec backend python -m ingest.pipelines.itaa1997.run_pipeline
+```
+
+This process may take time. Subsequent runs will be faster due to LLM caching (`ingest/cache/llm_cache.db`).
+
+### 4\. Access the Application
+
+  * **Frontend:** `http://localhost:3000`
+  * **Backend API Docs (Swagger):** `http://localhost:8000/docs`
+
+## Development Workflow
+
+The Docker Compose setup enables live reloading for both the frontend (Vite HMR) and the backend (Uvicorn reload). Changes made to the source code will be reflected automatically.
