@@ -23,7 +23,8 @@ const MainContent: React.FC<MainContentProps> = ({
   onSelectNode,
 }) => {
   const [renderedNodes, setRenderedNodes] = useState<TaxDataObject[]>([]);
-  const [loadStack, setLoadStack] = useState<string[]>([]);
+  const pendingIdsRef = useRef<string[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
   const [isLoadingChildren, setIsLoadingChildren] = useState(false);
   const [childLoadError, setChildLoadError] = useState<string | null>(null);
   const [isSentinelVisible, setIsSentinelVisible] = useState(false);
@@ -47,15 +48,15 @@ const MainContent: React.FC<MainContentProps> = ({
     rootIdRef.current = node?.internal_id ?? null;
     setChildLoadError(null);
     setIsLoadingChildren(false);
+    pendingIdsRef.current = [];
+    setPendingCount(0);
 
     if (!node) {
       setRenderedNodes([]);
-      setLoadStack([]);
       return;
     }
 
     setRenderedNodes([node]);
-    setLoadStack([]);
 
     let isCancelled = false;
 
@@ -66,7 +67,8 @@ const MainContent: React.FC<MainContentProps> = ({
           return;
         }
         const childIds = children.map(child => child.internal_id).reverse();
-        setLoadStack(childIds);
+        pendingIdsRef.current = childIds;
+        setPendingCount(childIds.length);
       } catch (error) {
         if (isCancelled || rootIdRef.current !== node.internal_id) {
           return;
@@ -128,15 +130,9 @@ const MainContent: React.FC<MainContentProps> = ({
       return;
     }
 
-    let nextId: string | null = null;
-    setLoadStack(prev => {
-      if (prev.length === 0) {
-        return prev;
-      }
-      const updated = prev.slice(0, -1);
-      nextId = prev[prev.length - 1];
-      return updated;
-    });
+    const queue = pendingIdsRef.current;
+    const nextId = queue.pop() ?? null;
+    setPendingCount(queue.length);
 
     if (!nextId) {
       return;
@@ -160,7 +156,8 @@ const MainContent: React.FC<MainContentProps> = ({
         }
         if (children.length > 0) {
           const childIds = children.map(child => child.internal_id).reverse();
-          setLoadStack(prev => [...prev, ...childIds]);
+          queue.push(...childIds);
+          setPendingCount(queue.length);
         }
       } catch (error) {
         if (rootIdRef.current === activeRootId) {
@@ -186,19 +183,19 @@ const MainContent: React.FC<MainContentProps> = ({
 
   // Trigger loading whenever the sentinel is visible and items remain on the stack
   useEffect(() => {
-    if (isSentinelVisible && loadStack.length > 0 && !isLoadingChildren) {
+    if (isSentinelVisible && pendingCount > 0 && !isLoadingChildren) {
       loadNextProvision();
     }
-  }, [isSentinelVisible, loadStack.length, isLoadingChildren, loadNextProvision]);
+  }, [isSentinelVisible, pendingCount, isLoadingChildren, loadNextProvision]);
 
   // Ensure the first child loads immediately after a node is selected, even if the
   // sentinel hasn't yet become visible (for example when the initial content is
   // shorter than the scroll container).
   useEffect(() => {
-    if (renderedNodes.length === 1 && loadStack.length > 0 && !isLoadingChildren) {
+    if (renderedNodes.length === 1 && pendingCount > 0 && !isLoadingChildren) {
       loadNextProvision();
     }
-  }, [renderedNodes.length, loadStack.length, isLoadingChildren, loadNextProvision]);
+  }, [renderedNodes.length, pendingCount, isLoadingChildren, loadNextProvision]);
 
   if (isLoading) {
     return <div className="p-8 text-center text-gray-400">Loading provision details...</div>;
