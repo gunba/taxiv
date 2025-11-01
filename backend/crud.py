@@ -50,13 +50,17 @@ def get_breadcrumbs(db: Session, internal_id: str) -> List[BreadcrumbItem]:
         models.Provision.hierarchy_path_ltree.op('@>')(ancestor_path)
     ).order_by(models.Provision.hierarchy_path_ltree)
 
-    # Log the actual query being sent
+    # Log the actual query being sent. Some dialect-specific types such as Ltree do not
+    # support literal compilation, so we gracefully fall back to parameterised logging.
     try:
         from sqlalchemy.dialects import postgresql
-        full_query = query.statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
-        logger.info(f"Executing breadcrumb query: {full_query}")
+
+        compiled_query = query.statement.compile(dialect=postgresql.dialect())
+        logger.info("Executing breadcrumb query: %s", compiled_query)
+        if compiled_query.params:
+            logger.info("Query parameters: %s", compiled_query.params)
     except Exception as e:
-        logger.error(f"Could not compile breadcrumb query for logging: {e}")
+        logger.warning("Could not prepare breadcrumb query for logging: %s", e)
 
     ancestors = query.all()
     logger.info(f"Found {len(ancestors)} breadcrumb ancestors.")

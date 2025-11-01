@@ -191,6 +191,15 @@ const MainContent: React.FC<MainContentProps> = ({
     }
   }, [isSentinelVisible, loadStack.length, isLoadingChildren, loadNextProvision]);
 
+  // Ensure the first child loads immediately after a node is selected, even if the
+  // sentinel hasn't yet become visible (for example when the initial content is
+  // shorter than the scroll container).
+  useEffect(() => {
+    if (renderedNodes.length === 1 && loadStack.length > 0 && !isLoadingChildren) {
+      loadNextProvision();
+    }
+  }, [renderedNodes.length, loadStack.length, isLoadingChildren, loadNextProvision]);
+
   if (isLoading) {
     return <div className="p-8 text-center text-gray-400">Loading provision details...</div>;
   }
