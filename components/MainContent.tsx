@@ -1,28 +1,36 @@
 // components/MainContent.tsx
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { TaxDataObject } from '../types';
 import InteractiveContent from './InteractiveContent';
 import { ClipboardIcon, ChevronRightIcon } from './Icons';
+import { api } from '../utils/api';
 
 interface MainContentProps {
   node: TaxDataObject | null;
-  // Added breadcrumbs prop
   breadcrumbs: { internal_id: string; title: string }[];
   isLoading: boolean;
-  // Handlers for InteractiveContent
   onTermClick: (definitionInternalId: string, termText: string) => void;
   onReferenceByRefIdClick: (refId: string) => void;
   onSelectNode: (nodeId: string) => void;
 }
 
 const MainContent: React.FC<MainContentProps> = ({
-    node,
-    breadcrumbs,
-    isLoading,
-    onTermClick,
-    onReferenceByRefIdClick,
-    onSelectNode
+  node,
+  breadcrumbs,
+  isLoading,
+  onTermClick,
+  onReferenceByRefIdClick,
+  onSelectNode,
 }) => {
+  const [renderedNodes, setRenderedNodes] = useState<TaxDataObject[]>([]);
+  const [loadStack, setLoadStack] = useState<string[]>([]);
+  const [isLoadingChildren, setIsLoadingChildren] = useState(false);
+  const [childLoadError, setChildLoadError] = useState<string | null>(null);
+  const [isSentinelVisible, setIsSentinelVisible] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const rootIdRef = useRef<string | null>(null);
+
+  const topProvision = renderedNodes[0] ?? null;
 
   // Scroll to top when the node changes
   useEffect(() => {
@@ -32,23 +40,153 @@ const MainContent: React.FC<MainContentProps> = ({
     }
   }, [node]);
 
-  // Copy to Clipboard functionality (Restored from original)
-  const copyToClipboard = useCallback(() => {
-    if (!node || !node.content_md) return;
-    // Note: Unlike the original, this only copies the current provision content, as descendant data is not fetched here due to the new architecture.
-    const markdown = `# ${node.title}\n\n${node.content_md}\n\n`;
-    navigator.clipboard.writeText(markdown).then(() => {
-      // Optional: Show a "copied!" notification
-    }).catch(err => console.error('Failed to copy text: ', err));
+  // Reset rendered nodes whenever the selected node changes
+  useEffect(() => {
+    rootIdRef.current = node?.internal_id ?? null;
+    setChildLoadError(null);
+    setIsLoadingChildren(false);
+
+    if (!node) {
+      setRenderedNodes([]);
+      setLoadStack([]);
+      return;
+    }
+
+    setRenderedNodes([node]);
+    setLoadStack([]);
+
+    let isCancelled = false;
+
+    const prepareChildStack = async () => {
+      try {
+        const children = await api.getHierarchy(node.act_id, node.internal_id);
+        if (isCancelled || rootIdRef.current !== node.internal_id) {
+          return;
+        }
+        const childIds = children.map(child => child.internal_id).reverse();
+        setLoadStack(childIds);
+      } catch (error) {
+        if (isCancelled || rootIdRef.current !== node.internal_id) {
+          return;
+        }
+        console.error('Error loading child hierarchy:', error);
+        setChildLoadError('Failed to load child provisions.');
+      }
+    };
+
+    prepareChildStack();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [node]);
 
+  // Observe the sentinel for lazy loading
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry) {
+          setIsSentinelVisible(entry.isIntersecting);
+        }
+      },
+      {
+        root: null,
+        rootMargin: '400px 0px',
+      }
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  const copyToClipboard = useCallback(() => {
+    if (!topProvision || !topProvision.content_md) return;
+    const markdown = `# ${topProvision.title}\n\n${topProvision.content_md}\n\n`;
+    navigator.clipboard.writeText(markdown).catch(err => console.error('Failed to copy text: ', err));
+  }, [topProvision]);
+
+  const loadNextProvision = useCallback(async () => {
+    if (isLoadingChildren) {
+      return;
+    }
+
+    let nextId: string | null = null;
+    setLoadStack(prev => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      const updated = prev.slice(0, -1);
+      nextId = prev[prev.length - 1];
+      return updated;
+    });
+
+    if (!nextId) {
+      return;
+    }
+
+    setIsLoadingChildren(true);
+    const activeRootId = rootIdRef.current;
+
+    try {
+      const detail = await api.getProvisionDetail(nextId);
+      if (rootIdRef.current !== activeRootId) {
+        return;
+      }
+
+      setRenderedNodes(prev => [...prev, detail]);
+
+      try {
+        const children = await api.getHierarchy(detail.act_id, detail.internal_id);
+        if (rootIdRef.current !== activeRootId) {
+          return;
+        }
+        if (children.length > 0) {
+          const childIds = children.map(child => child.internal_id).reverse();
+          setLoadStack(prev => [...prev, ...childIds]);
+        }
+      } catch (error) {
+        if (rootIdRef.current === activeRootId) {
+          console.error('Error loading nested child hierarchy:', error);
+          setChildLoadError('Failed to load some descendant provisions.');
+        }
+      }
+
+      if (rootIdRef.current === activeRootId) {
+        setChildLoadError(null);
+      }
+    } catch (error) {
+      if (rootIdRef.current === activeRootId) {
+        console.error('Error loading child provision detail:', error);
+        setChildLoadError(`Failed to load additional provisions. ${(error as Error).message}`);
+      }
+    } finally {
+      if (rootIdRef.current === activeRootId) {
+        setIsLoadingChildren(false);
+      }
+    }
+  }, [isLoadingChildren]);
+
+  // Trigger loading whenever the sentinel is visible and items remain on the stack
+  useEffect(() => {
+    if (isSentinelVisible && loadStack.length > 0 && !isLoadingChildren) {
+      loadNextProvision();
+    }
+  }, [isSentinelVisible, loadStack.length, isLoadingChildren, loadNextProvision]);
 
   if (isLoading) {
     return <div className="p-8 text-center text-gray-400">Loading provision details...</div>;
   }
 
-  if (!node) {
-    // Welcome message restored from original
+  if (!topProvision) {
     return (
       <div className="p-8 text-center text-gray-400">
         <h2 className="text-2xl font-semibold">Welcome to the Tax Code Explorer</h2>
@@ -57,48 +195,83 @@ const MainContent: React.FC<MainContentProps> = ({
     );
   }
 
-  // Layout restored from original
   return (
     <div className="p-6 md:p-8">
-      {/* Header area with Breadcrumbs and Copy button */}
-      <div className="flex items-center justify-between pb-4 mb-4 border-b border-gray-700">
-        <div className="flex items-center text-sm text-gray-400 overflow-hidden">
-            {/* Breadcrumbs display */}
-            {breadcrumbs.length > 0 ? breadcrumbs.map((crumb, index) => (
-                <React.Fragment key={crumb.internal_id}>
-                    <button onClick={() => onSelectNode(crumb.internal_id)} className="truncate hover:underline whitespace-nowrap">
+      {renderedNodes.map((provision, index) => (
+        <article
+          key={provision.internal_id}
+          className={index === 0 ? '' : 'pt-8 mt-8 border-t border-gray-800'}
+        >
+          {index === 0 ? (
+            <>
+              <div className="flex items-center justify-between pb-4 mb-4 border-b border-gray-700">
+                <div className="flex items-center text-sm text-gray-400 overflow-hidden">
+                  {breadcrumbs.length > 0 ? breadcrumbs.map((crumb, crumbIndex) => (
+                    <React.Fragment key={crumb.internal_id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectNode(crumb.internal_id)}
+                        className="truncate hover:underline whitespace-nowrap"
+                      >
                         {crumb.title}
-                    </button>
-                    {index < breadcrumbs.length - 1 && <ChevronRightIcon className="w-4 h-4 mx-1 shrink-0" />}
-                </React.Fragment>
-            )) : (
-                <span className="text-gray-500 text-xs">(Loading breadcrumbs or API unavailable)</span>
-            )}
-        </div>
-        <button onClick={copyToClipboard} className="p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors shrink-0 ml-4" aria-label="Copy content to clipboard">
-          <ClipboardIcon className="w-5 h-5" />
-        </button>
-      </div>
+                      </button>
+                      {crumbIndex < breadcrumbs.length - 1 && <ChevronRightIcon className="w-4 h-4 mx-1 shrink-0" />}
+                    </React.Fragment>
+                  )) : (
+                    <span className="text-gray-500 text-xs">(Loading breadcrumbs or API unavailable)</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={copyToClipboard}
+                  className="p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors shrink-0 ml-4"
+                  aria-label="Copy content to clipboard"
+                >
+                  <ClipboardIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
+                <p className="text-sm font-semibold text-blue-400">{provision.type}</p>
+                <h1 className="text-2xl md:text-3xl font-bold text-gray-100 mt-1">{provision.title}</h1>
+                {provision.ref_id && <p className="text-xs text-gray-500 font-mono mt-2">{provision.ref_id}</p>}
+              </div>
+            </>
+          ) : (
+            <header className="mb-4">
+              <button
+                type="button"
+                onClick={() => onSelectNode(provision.internal_id)}
+                className="text-left group"
+              >
+                <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide">{provision.type}</p>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-100 mt-1 group-hover:text-blue-200 group-hover:underline">
+                  {provision.title}
+                </h2>
+                {provision.ref_id && <p className="text-xs text-gray-500 font-mono mt-1">{provision.ref_id}</p>}
+              </button>
+            </header>
+          )}
 
-      {/* Title area */}
-      <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
-        <p className="text-sm font-semibold text-blue-400">{node.type}</p>
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-100 mt-1">{node.title}</h1>
-        {node.ref_id && <p className="text-xs text-gray-500 font-mono mt-2">{node.ref_id}</p>}
-      </div>
+          <div className="mt-4 text-gray-300 leading-relaxed prose prose-invert max-w-none">
+            <InteractiveContent
+              key={provision.internal_id}
+              node={provision}
+              onTermClick={onTermClick}
+              onReferenceByRefIdClick={onReferenceByRefIdClick}
+            />
+          </div>
+        </article>
+      ))}
 
-      {/* Content Rendering using InteractiveContent */}
-      <div className="mt-4 text-gray-300 leading-relaxed prose prose-invert max-w-none">
-        <InteractiveContent
-          key={node.internal_id}
-          node={node}
-          onTermClick={onTermClick}
-          onReferenceByRefIdClick={onReferenceByRefIdClick}
-        />
-      </div>
+      <div ref={sentinelRef} className="h-1" />
 
-      {/* Note: The original infinite scroll display of children is omitted as it is incompatible with the API's single-provision detail endpoint architecture. */}
+      {isLoadingChildren && (
+        <div className="py-4 text-center text-gray-400 text-sm">Loading additional provisions...</div>
+      )}
 
+      {childLoadError && (
+        <div className="py-4 text-center text-red-400 text-sm">{childLoadError}</div>
+      )}
     </div>
   );
 };
