@@ -29,7 +29,7 @@ def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDet
     ).outerjoin(TargetProvision, TargetProvision.internal_id == models.Reference.target_internal_id
     ).filter(models.Reference.source_internal_id == internal_id).all()
 
-    references_to = [ReferenceToDetail.model_validate(r) for r in references_to_query]
+    references_to = [ReferenceToDetail.model_validate(r._asdict()) for r in references_to_query]
 
     # 2. Referenced By (Incoming)
     SourceProvision = aliased(models.Provision)
@@ -40,7 +40,7 @@ def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDet
     ).join(models.Reference, models.Reference.source_internal_id == SourceProvision.internal_id
     ).filter(models.Reference.target_internal_id == internal_id).distinct().all()
 
-    referenced_by = [ReferencedByDetail.model_validate(r) for r in referenced_by_query]
+    referenced_by = [ReferencedByDetail.model_validate(r._asdict()) for r in referenced_by_query]
 
     # 3. Defined Terms Used
     DefinitionProvision = aliased(models.Provision)
@@ -50,7 +50,7 @@ def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDet
     ).outerjoin(DefinitionProvision, DefinitionProvision.internal_id == models.DefinedTermUsage.definition_internal_id
     ).filter(models.DefinedTermUsage.source_internal_id == internal_id).all()
 
-    defined_terms_used = [DefinedTermUsageDetail.model_validate(t) for t in terms_used_query]
+    defined_terms_used = [DefinedTermUsageDetail.model_validate(t._asdict()) for t in terms_used_query]
 
     # 4. Construct the final response model
     # Convert the SQLAlchemy model to a dict
@@ -74,9 +74,13 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
     Fetches the hierarchy nodes (children) for a given parent or the top level of an act.
     """
 
+    # Alias for the child provision in the subquery
+    ChildProvision = aliased(models.Provision)
+
     # Define a subquery to check for the existence of children efficiently.
-    children_exists_subq = db.query(models.Provision.internal_id)\
-        .filter(models.Provision.parent_internal_id == models.Provision.internal_id)\
+    # This subquery is correlated with the outer query on models.Provision.internal_id
+    children_exists_subq = db.query(ChildProvision.internal_id)\
+        .filter(ChildProvision.parent_internal_id == models.Provision.internal_id)\
         .exists().label("has_children")
 
     # Base query for the hierarchy nodes
@@ -85,7 +89,7 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
         models.Provision.ref_id,
         models.Provision.title,
         models.Provision.type,
-        # Use the subquery to determine has_children
+        # Use the correlated subquery to determine has_children for each row
         children_exists_subq
     ).filter(models.Provision.act_id == act_id)
 
@@ -99,4 +103,4 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
     results = query.order_by(models.Provision.hierarchy_path_ltree).all()
 
     # Convert results to Pydantic models
-    return [ProvisionHierarchy.model_validate(r) for r in results]
+    return [ProvisionHierarchy.model_validate(r._asdict()) for r in results]

@@ -5,7 +5,7 @@ services:
   db:
     image: postgres:15-alpine
     container_name: taxiv_db
-    restart: unless-stopped
+    restart: no
     env_file:
       - .env
     environment:
@@ -28,11 +28,14 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: taxiv_backend
-    restart: unless-stopped
+    restart: no
     env_file:
       - .env
+    environment:
+      GOOGLE_CLOUD_API_KEY: ${GOOGLE_CLOUD_API_KEY}
     # Override CMD for development: enable live reloading
     command: uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+    mem_limit: 8g
     volumes:
       # Mount the code for live reloading and access to data directories
       - .:/app
@@ -48,7 +51,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: taxiv_frontend
-    restart: unless-stopped
+    restart: no
     env_file:
       - .env
     volumes:

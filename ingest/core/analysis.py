@@ -109,24 +109,35 @@ class GraphAnalyzer:
         # For this pipeline, the current act is the default act.
         current_act_id = self.default_act_id
 
-        is_new_definition = internal_id not in self.node_registry
+        # Check if it's a new node OR a placeholder that needs to be hydrated
+        is_new_or_placeholder = (
+            internal_id not in self.node_registry or
+            self.node_registry[internal_id].get("is_placeholder", False)
+        )
 
-        if is_new_definition:
-            self.node_registry[internal_id] = node.copy()
-            if internal_id not in self.G:
-                self.G.add_node(internal_id)
+        current_ltree_path = ltree_path
 
-            # Calculate LTree Path (NEW LOGIC)
-            current_ltree_path = ltree_path
+        if is_new_or_placeholder:
+            # If it's a placeholder, update it. If it's new, create it.
+            if internal_id in self.node_registry:
+                # Hydrate placeholder
+                self.node_registry[internal_id].update(node.copy())
+                self.node_registry[internal_id].pop("is_placeholder", None)
+                self.node_registry[internal_id].pop("is_external", None)
+            else:
+                # Create new
+                self.node_registry[internal_id] = node.copy()
+                if internal_id not in self.G:
+                    self.G.add_node(internal_id)
+
+            # --- Calculate LTree Path (Moved inside) ---
             node_type = node.get("type")
             node_id = node.get("id") # This is the local_id (e.g., '10-5' or the term)
 
             # Determine the path component for LTree
-            # Prioritize the specific ID if available, otherwise use type, otherwise fallback.
             if node_id:
                 path_component = sanitize_for_ltree(node_id)
             elif node_type:
-                # For elements like Guides that might not have a local ID, use Type + unique suffix
                 path_component = f"{sanitize_for_ltree(node_type)}_{time.time_ns()}"
             else:
                 path_component = sanitize_for_ltree(None)
@@ -135,16 +146,12 @@ class GraphAnalyzer:
             if current_ltree_path:
                 current_ltree_path += f".{path_component}"
             else:
-                # Root level element (Should generally have the Act ID passed in from the runner)
                 logger.warning(f"Root level element '{internal_id}' processed without parent LTree path.")
                 current_ltree_path = path_component
 
-
             # --- Populate id_type_registry (Standardized Key) ---
             if node_type and node_id:
-                # Convert ID to string for consistent lookup
                 str_node_id = str(node_id)
-                # ADAPTED: Standardized Key (ACT/ID)
                 registry_key = f"{current_act_id}/{str_node_id}"
 
                 if registry_key not in self.id_type_registry:
@@ -163,19 +170,17 @@ class GraphAnalyzer:
                 self.G.add_edge(parent_internal_id, internal_id, type='CONTAINS')
 
         else:
-            # If node already exists (e.g., definitions processed before main structure), retrieve its path for children processing
+            # If node already exists (and not a placeholder), retrieve its path for children processing
             retrieved_ltree = self.node_registry[internal_id].get("hierarchy_path_ltree")
             if isinstance(retrieved_ltree, Ltree):
                 current_ltree_path = str(retrieved_ltree)
-            else:
-                current_ltree_path = ltree_path
+            # else: current_ltree_path remains as passed in (ltree_path)
 
 
         # Recurse into children
         for child in node.get("children", []):
             # Pass the calculated path down to children
             self.process_node_pass1(child, internal_id, current_ltree_path)
-
 
     # --- PASS 2: Reference Validation ---
 

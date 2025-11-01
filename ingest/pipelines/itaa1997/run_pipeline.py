@@ -9,11 +9,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 # Import core modules
-# Note: We import the specific functions/variables needed from core.llm_extraction
-# as defined in Phase 1.
-from ingest.core.llm_extraction import (
-    initialize_gemini_client, LLM_CLIENT, GLOBAL_COST_TRACKER, process_section_llm_task, LLM_MODEL_NAME
-)
+# MODIFICATION: Import the module itself
+from ingest.core import llm_extraction
 from ingest.core.utils import recursive_finalize_structure
 from ingest.core.analysis import GraphAnalyzer, sanitize_for_ltree
 from ingest.core.loading import DatabaseLoader
@@ -68,7 +65,7 @@ def process_and_analyze_definitions_concurrent(pbar_llm, executor, config: Confi
             DEFINITIONS_995_1[term]["defined_terms_used"] = precise_terms
 
         # 2. Submit LLM analysis to the pool
-        if LLM_CLIENT and current_content:
+        if llm_extraction.LLM_CLIENT and current_content:
             # Prepare temporary structure for the LLM task
             existing_refs = DEFINITIONS_995_1[term].get("references", set())
             if not isinstance(existing_refs, set):
@@ -82,7 +79,11 @@ def process_and_analyze_definitions_concurrent(pbar_llm, executor, config: Confi
                 "title": f"Def:{term}"
             }
             # Submit the task
-            future = executor.submit(process_section_llm_task, temp_section, definition_context)
+            future = executor.submit(
+                llm_extraction.process_section_llm_task, # Use the module path for the task too
+                temp_section,
+                definition_context
+            )
             futures.append((future, term, temp_section))
 
     # 3. Wait for completion and update results
@@ -98,7 +99,7 @@ def process_and_analyze_definitions_concurrent(pbar_llm, executor, config: Confi
 
             pbar_defs.update(1)
             pbar_llm.update(1)
-            current_cost, _, _ = GLOBAL_COST_TRACKER.get_metrics()
+            current_cost, _, _, _, _ = llm_extraction.GLOBAL_COST_TRACKER.get_metrics() # Use module path
             pbar_llm.set_postfix_str(f"Cost: ${current_cost:.4f}")
 
             # Map results back (worker updates temp_section["references"] in place)
@@ -128,10 +129,15 @@ def run_parsing_and_enrichment(config: Config):
     os.makedirs(config.CACHE_DIR, exist_ok=True)
 
     # Initialize Gemini Client (uses GOOGLE_CLOUD_API_KEY from env)
-    initialize_gemini_client()
+    
+    # MODIFICATION: Access LLM_CLIENT via its module
+    print(f"LLM_CLIENT before initialization: {llm_extraction.LLM_CLIENT}")
+    llm_extraction.initialize_gemini_client()
+    print(f"LLM_CLIENT after initialization: {llm_extraction.LLM_CLIENT}")
 
     logger.info(f"Starting Processing (Concurrent Workers: {config.MAX_WORKERS})...")
-    if not LLM_CLIENT:
+    # MODIFICATION: Access LLM_CLIENT via its module
+    if not llm_extraction.LLM_CLIENT:
         logger.warning("CRITICAL WARNING: Proceeding without LLM reference extraction.")
 
     # Initialize the LLM progress bar (Position 1)
@@ -201,7 +207,7 @@ def run_parsing_and_enrichment(config: Config):
                         pbar_llm.update(1)
 
                         # Update cost display (main thread)
-                        current_cost, _, _ = GLOBAL_COST_TRACKER.get_metrics()
+                        current_cost, _, _, _, _ = llm_extraction.GLOBAL_COST_TRACKER.get_metrics()
                         pbar_llm.set_postfix_str(f"Cost: ${current_cost:.4f}")
 
                 pbar_volumes.set_description(f"Volume {volume_num}: Finalizing...", refresh=True)
@@ -244,10 +250,10 @@ def run_parsing_and_enrichment(config: Config):
             logger.error(f"Error saving definitions: {str(e)}")
 
     logger.info("\nPhase A: Parsing and Enrichment complete.")
-    if LLM_CLIENT:
-        final_cost, total_in, total_out = GLOBAL_COST_TRACKER.get_metrics()
+    if llm_extraction.LLM_CLIENT:
+        final_cost, total_in, total_out, _, _ = llm_extraction.GLOBAL_COST_TRACKER.get_metrics()
         print(f"\n--- Gemini Usage Summary ---")
-        print(f"Model: {LLM_MODEL_NAME}")
+        print(f"Model: {llm_extraction.LLM_MODEL_NAME}")
         print(f"Total Input Tokens:  {total_in:,}")
         print(f"Total Output Tokens: {total_out:,}")
         print(f"Estimated Total Cost: ${final_cost:.4f}")
@@ -314,7 +320,8 @@ def run_analysis_and_loading(config: Config):
 
             if parent_internal_id in analyzer.node_registry:
                 # Parent exists, use its LTree path
-                parent_ltree_path = analyzer.node_registry[parent_internal_id].get("hierarchy_path_ltree", ACT_LTREE_ROOT)
+                parent_ltree_obj = analyzer.node_registry[parent_internal_id].get("hierarchy_path_ltree", ACT_LTREE_ROOT)
+                parent_ltree_path = str(parent_ltree_obj)
             else:
                 logger.warning("Parent section 995-1 not found in registry. Definitions will be top-level.")
                 parent_internal_id = None

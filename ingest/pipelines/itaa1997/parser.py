@@ -30,7 +30,8 @@ except ImportError:
 from ingest.core.utils import iter_block_items, get_indentation, recursive_finalize_structure
 # Import LLM tools needed for the finalization callback
 # We import these here to ensure they are available when finalize_section is called
-from ingest.core.llm_extraction import LLM_CLIENT, process_section_llm_task
+# MODIFICATION: Import the module itself
+from ingest.core import llm_extraction
 
 # Import pipeline-specific configuration (using relative import)
 # We import the config values directly rather than the module object for clarity
@@ -305,10 +306,14 @@ def finalize_section(section: Dict, hierarchy_context: List[str], executor: Opti
         section["content_md"] = section["content_md"].strip()
 
         # If an executor is provided and LLM is active, submit the task concurrently
-        # LLM_CLIENT and process_section_llm_task are imported from ingest.core.llm_extraction
-        if executor and futures is not None and LLM_CLIENT and section["content_md"]:
+        # MODIFICATION: Access LLM_CLIENT via its module
+        if executor and futures is not None and llm_extraction.LLM_CLIENT and section["content_md"]:
             # Submit the task to the thread pool
-            future = executor.submit(process_section_llm_task, section, hierarchy_context)
+            future = executor.submit(
+                llm_extraction.process_section_llm_task, # Use the module path for the task
+                section,
+                hierarchy_context
+            )
             futures.append(future)
 
 # =============================================================================

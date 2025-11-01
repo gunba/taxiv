@@ -10,9 +10,9 @@ class Config:
 
     # Define paths based on the standardized structure
     try:
-        INGEST_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+        INGEST_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     except NameError:
-        INGEST_ROOT = os.path.abspath(os.path.join(os.getcwd()))
+        INGEST_ROOT = os.path.abspath(os.path.join(os.getcwd(), 'ingest'))
 
     # Standardized input/output directories
     INPUT_DATA_DIR = os.path.join(INGEST_ROOT, "data", ACT_ID.lower())

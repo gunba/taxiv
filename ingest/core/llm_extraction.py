@@ -230,6 +230,8 @@ Strictly JSON. Output a valid JSON array of objects, where each object has a "re
 If no references are found, return an empty JSON array [].
 """
 
+import traceback
+
 def initialize_gemini_client():
     """Initializes the Gemini client."""
     global LLM_CLIENT
@@ -270,6 +272,7 @@ def initialize_gemini_client():
 
     except Exception as e:
         tqdm.write(f"Warning: Error initializing Gemini Client ({str(e)}). Proceeding without LLM features.")
+        traceback.print_exc()
         LLM_CLIENT = None
 
 # =============================================================================

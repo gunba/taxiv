@@ -35,7 +35,7 @@ const MainContent: React.FC<MainContentProps> = ({ node, isLoading, onReferenceC
     terms.forEach(t => termMap.set(t.term_text.toLowerCase(), t.definition_internal_id));
 
     // Regex to find asterisked terms. Must match the pattern used during ingestion.
-    const regex = /(?:^|[\s\(])\*(?P<term>[a-zA-Z0-9\s\-\(\)]+?)(?=[\s,.;:)]|$)/g;
+    const regex = /(?:^|[\s\(])\*(?<term>[a-zA-Z0-9\s\-\(\)]+?)(?=[\s,.;:)]|$)/g;
 
     // Replacement function
     content = content.replace(regex, (match) => {
