@@ -80,8 +80,13 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
                     <button
                         key={i}
                         onClick={clickable.handler}
-                        // Styling restored from the original frontend
-                        className={`font-medium rounded px-1 py-0.5 ${clickable.type === 'ref' ? 'text-blue-400 hover:bg-blue-900' : 'text-green-400 hover:bg-green-900'} hover:underline transition-colors`}
+                        type="button"
+                        data-interactive-token="true"
+                        className={`inline font-medium transition-colors ${
+                            clickable.type === 'ref'
+                                ? 'text-blue-400 hover:text-blue-300 focus-visible:text-blue-200'
+                                : 'text-green-400 hover:text-green-300 focus-visible:text-green-200'
+                        } hover:underline focus-visible:underline focus-visible:outline-none`}
                     >
                         {part}
                     </button>
@@ -100,7 +105,7 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
             // Recurse into nested elements (like <em>, <strong>)
             if (React.isValidElement(child) && (child.props as any).children) {
                 // Prevent reprocessing our own interactive buttons
-                if (child.type === 'button' && (child.props as any).className?.includes('font-medium rounded px-1')) {
+                if (child.type === 'button' && (child.props as any)['data-interactive-token']) {
                     return child;
                 }
                 return React.cloneElement(child, {
