@@ -34,13 +34,17 @@
 * **Data Fetching:**
     * Data is fetched dynamically from the FastAPI backend.
     * API calls are abstracted in `utils/api.ts`.
-    * The application uses a "load-on-demand" strategy for the navigation hierarchy (`SideNav.tsx`). Children are fetched only when a parent is expanded.
-* **API Proxy:** Vite is configured (`vite.config.ts`) to proxy requests from `/api` to the backend container (`http://backend:8000`). This avoids CORS issues in development.
-* **TypeScript:** All code must be strongly typed. Avoid `any`. Interfaces in `types.ts` must align with the backend Pydantic schemas.
+    * The application uses a "load-on-demand" strategy for the navigation hierarchy (`SideNav.tsx`). Children are
+      fetched only when a parent is expanded.
+* **API Proxy:** Vite is configured (`vite.config.ts`) to proxy requests from `/api` to the backend container (
+  `http://backend:8000`). This avoids CORS issues in development.
+* **TypeScript:** All code must be strongly typed. Avoid `any`. Interfaces in `types.ts` must align with the backend
+  Pydantic schemas.
 
 ## UX/UI
 
 * **Styling:** Uses a dark theme defined by Tailwind CSS utility classes.
 * **Interactivity:**
-    * `MainContent.tsx` processes markdown content to make defined terms (e.g., `*term*`) interactive using regex replacement and event delegation.
+    * `MainContent.tsx` processes markdown content to make defined terms (e.g., `*term*`) interactive using regex
+      replacement and event delegation.
 * **Error Handling:** Basic error and loading states are implemented in `App.tsx` and `SideNav.tsx`.

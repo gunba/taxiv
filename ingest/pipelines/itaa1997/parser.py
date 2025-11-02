@@ -1,33 +1,38 @@
 # ingest/pipelines/itaa1997/parser.py
 import os
 import re
-import docx
-from typing import Dict, Optional, Pattern, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Optional, Pattern, List, Tuple, Set
+
+import docx
 
 # We use tqdm for progress bars during parsing
 try:
-    from tqdm import tqdm
+	from tqdm import tqdm
 except ImportError:
-    # Fallback if tqdm is not installed
-    def tqdm(iterable=None, **kwargs):
-        return iterable if iterable is not None else []
-    tqdm.write = print
+	# Fallback if tqdm is not installed
+	def tqdm(iterable=None, **kwargs):
+		return iterable if iterable is not None else []
+
+
+	tqdm.write = print
 
 # Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
 from .config import Config
 
 # We use tqdm for progress bars during parsing
 try:
-    from tqdm import tqdm
+	from tqdm import tqdm
 except ImportError:
-    # Fallback if tqdm is not installed
-    def tqdm(iterable=None, **kwargs):
-        return iterable if iterable is not None else []
-    tqdm.write = print
+	# Fallback if tqdm is not installed
+	def tqdm(iterable=None, **kwargs):
+		return iterable if iterable is not None else []
+
+
+	tqdm.write = print
 
 # Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
-from ingest.core.utils import iter_block_items, get_indentation, recursive_finalize_structure
+from ingest.core.utils import iter_block_items, get_indentation
 # Import LLM tools needed for the finalization callback
 # We import these here to ensure they are available when finalize_section is called
 # MODIFICATION: Import the module itself
@@ -39,14 +44,19 @@ config = Config()
 
 # Import docx components
 try:
-    from docx.document import Document as _Document
-    from docx.oxml.table import CT_Tbl
-    from docx.oxml.text.paragraph import CT_P
-    from docx.table import _Cell, Table
-    from docx.text.paragraph import Paragraph
+	from docx.document import Document as _Document
+	from docx.oxml.table import CT_Tbl
+	from docx.oxml.text.paragraph import CT_P
+	from docx.table import _Cell, Table
+	from docx.text.paragraph import Paragraph
 except ImportError:
-    print("Error: python-docx library not found. Please install it: pip install python-docx")
-    _Document = object; Table = object; Paragraph = object; _Cell = object; CT_P = object; CT_Tbl = object
+	print("Error: python-docx library not found. Please install it: pip install python-docx")
+	_Document = object;
+	Table = object;
+	Paragraph = object;
+	_Cell = object;
+	CT_P = object;
+	CT_Tbl = object
 
 # =============================================================================
 # Global State for Definitions (Managed during the parsing process)
@@ -56,450 +66,466 @@ except ImportError:
 DEFINITIONS_995_1: Dict[str, Dict] = {}
 DEFINITION_MARKER_REGEX: Optional[Pattern] = None
 
+
 # =============================================================================
 # Parsing Helper Functions (Specific to ITAA1997 structure/formatting)
 # =============================================================================
 
 def should_ignore_style(style_name):
-    """Checks if a style should be ignored based on config."""
-    if style_name in config.IGNORE_STYLES: return True
-    for pattern in config.IGNORE_STYLE_PATTERNS:
-        if style_name.startswith(pattern): return True
-    return False
+	"""Checks if a style should be ignored based on config."""
+	if style_name in config.IGNORE_STYLES: return True
+	for pattern in config.IGNORE_STYLE_PATTERNS:
+		if style_name.startswith(pattern): return True
+	return False
+
 
 def identify_defined_terms(text: str) -> Set[str]:
-    """Identifies asterisked definitions using the appropriate pattern (Compiled or Fallback)."""
-    # Use the precise regex if available (Pass 2), otherwise use the fallback (Pass 1).
-    regex_to_use = DEFINITION_MARKER_REGEX if DEFINITION_MARKER_REGEX else config.FALLBACK_ASTERISK_REGEX
+	"""Identifies asterisked definitions using the appropriate pattern (Compiled or Fallback)."""
+	# Use the precise regex if available (Pass 2), otherwise use the fallback (Pass 1).
+	regex_to_use = DEFINITION_MARKER_REGEX if DEFINITION_MARKER_REGEX else config.FALLBACK_ASTERISK_REGEX
 
-    found_terms = set()
-    # Ensure text is a string
-    text = str(text)
-    for match in regex_to_use.finditer(text):
-        try:
-            term = match.group('term').strip()
-            if term:
-                found_terms.add(term)
-        except IndexError:
-            continue
-    return found_terms
+	found_terms = set()
+	# Ensure text is a string
+	text = str(text)
+	for match in regex_to_use.finditer(text):
+		try:
+			term = match.group('term').strip()
+			if term:
+				found_terms.add(term)
+		except IndexError:
+			continue
+	return found_terms
+
 
 def compile_definition_regex():
-    """Compiles the DEFINITION_MARKER_REGEX after Pass 1."""
-    global DEFINITION_MARKER_REGEX
-    print("\nCompiling precise definition pattern for Pass 2...")
+	"""Compiles the DEFINITION_MARKER_REGEX after Pass 1."""
+	global DEFINITION_MARKER_REGEX
+	print("\nCompiling precise definition pattern for Pass 2...")
 
-    if not DEFINITIONS_995_1:
-        print("Warning: No definitions found. Proceeding with fallback pattern.")
-        return
+	if not DEFINITIONS_995_1:
+		print("Warning: No definitions found. Proceeding with fallback pattern.")
+		return
 
-    sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
-    escaped_terms = [re.escape(term) for term in sorted_terms]
-    alternation_group = "|".join(escaped_terms)
+	sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
+	escaped_terms = [re.escape(term) for term in sorted_terms]
+	alternation_group = "|".join(escaped_terms)
 
-    # Ensure the pattern matches the structure used in the config regex (raw string)
-    pattern = r'(?:^|[\s\(])\*(?P<term>' + alternation_group + r')(?=[\s,.;:)]|$)'
+	# Ensure the pattern matches the structure used in the config regex (raw string)
+	pattern = r'(?:^|[\s\(])\*(?P<term>' + alternation_group + r')(?=[\s,.;:)]|$)'
 
-    try:
-        DEFINITION_MARKER_REGEX = re.compile(pattern, re.IGNORECASE)
-        print(f"Pattern compiled successfully with {len(sorted_terms)} terms.")
-    except re.error as e:
-        print(f"Error compiling definition regex: {str(e)}. Falling back to generic pattern.")
+	try:
+		DEFINITION_MARKER_REGEX = re.compile(pattern, re.IGNORECASE)
+		print(f"Pattern compiled successfully with {len(sorted_terms)} terms.")
+	except re.error as e:
+		print(f"Error compiling definition regex: {str(e)}. Falling back to generic pattern.")
+
 
 # =============================================================================
 # Content Processing (Text, Tables, Images)
 # =============================================================================
 
 def get_image_alt_text(paragraph) -> Tuple[str, Set[str]]:
-    alt_texts_md = []
-    all_defined_terms = set()
-    # XML namespaces for locating image descriptions
-    W_URI = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-    WP_URI = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
-    drawing_qname = f'{{{W_URI}}}drawing'
-    docPr_qname = f'{{{WP_URI}}}docPr'
+	alt_texts_md = []
+	all_defined_terms = set()
+	# XML namespaces for locating image descriptions
+	W_URI = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+	WP_URI = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
+	drawing_qname = f'{{{W_URI}}}drawing'
+	docPr_qname = f'{{{WP_URI}}}docPr'
 
-    # Handle potential missing _element attribute if docx import failed partially
-    if not hasattr(paragraph, '_element') or paragraph._element is None:
-        return "", set()
+	# Handle potential missing _element attribute if docx import failed partially
+	if not hasattr(paragraph, '_element') or paragraph._element is None:
+		return "", set()
 
-    for drawing in paragraph._element.iter(drawing_qname):
-        for docPr in drawing.iter(docPr_qname):
-            alt_text = docPr.get('descr')
-            if alt_text:
-                terms = identify_defined_terms(alt_text)
-                all_defined_terms.update(terms)
-                # Format as markdown
-                text_to_add = f"\n[Image Description: {alt_text}]\n\n"
+	for drawing in paragraph._element.iter(drawing_qname):
+		for docPr in drawing.iter(docPr_qname):
+			alt_text = docPr.get('descr')
+			if alt_text:
+				terms = identify_defined_terms(alt_text)
+				all_defined_terms.update(terms)
+				# Format as markdown
+				text_to_add = f"\n[Image Description: {alt_text}]\n\n"
 
-                if text_to_add not in alt_texts_md:
-                    alt_texts_md.append(text_to_add)
+				if text_to_add not in alt_texts_md:
+					alt_texts_md.append(text_to_add)
 
-    return "".join(alt_texts_md), all_defined_terms
+	return "".join(alt_texts_md), all_defined_terms
+
 
 def process_table(table) -> Tuple[str, Set[str]]:
-    table_md = "\n"
-    all_defined_terms = set()
-    try:
-        rows_data = []
-        max_cols = 0
+	table_md = "\n"
+	all_defined_terms = set()
+	try:
+		rows_data = []
+		max_cols = 0
 
-        # Handle potential missing rows attribute
-        if not hasattr(table, 'rows'):
-            return "\n[Table structure unreadable]\n\n", set()
+		# Handle potential missing rows attribute
+		if not hasattr(table, 'rows'):
+			return "\n[Table structure unreadable]\n\n", set()
 
-        for row in table.rows:
-                if len(row.cells) > max_cols:
-                    max_cols = len(row.cells)
-        if max_cols == 0: return "", set()
+		for row in table.rows:
+			if len(row.cells) > max_cols:
+				max_cols = len(row.cells)
+		if max_cols == 0: return "", set()
 
-        for row in table.rows:
-            row_data = []
-            for cell in row.cells:
-                # Clean cell text and normalize whitespace
-                cell_text = cell.text.strip().replace('\n', ' ').replace('\u00A0', ' ')
-                terms = identify_defined_terms(cell_text)
-                all_defined_terms.update(terms)
-                row_data.append(cell_text)
+		for row in table.rows:
+			row_data = []
+			for cell in row.cells:
+				# Clean cell text and normalize whitespace
+				cell_text = cell.text.strip().replace('\n', ' ').replace('\u00A0', ' ')
+				terms = identify_defined_terms(cell_text)
+				all_defined_terms.update(terms)
+				row_data.append(cell_text)
 
-            while len(row_data) < max_cols:
-                row_data.append("")
-            if any(row_data):
-                rows_data.append(row_data)
+			while len(row_data) < max_cols:
+				row_data.append("")
+			if any(row_data):
+				rows_data.append(row_data)
 
-        if not rows_data: return "", set()
+		if not rows_data: return "", set()
 
-        for i, row_data in enumerate(rows_data):
-            table_md += "| " + " | ".join(row_data) + " |\n"
-            if i == 0:
-                table_md += "|---" * len(row_data) + "|\n"
+		for i, row_data in enumerate(rows_data):
+			table_md += "| " + " | ".join(row_data) + " |\n"
+			if i == 0:
+				table_md += "|---" * len(row_data) + "|\n"
 
-    except Exception as e:
-        print(f"Warning: Error processing a table: {str(e)}")
-        return "\n[Error processing table. Refer to original document.]\n\n", all_defined_terms
+	except Exception as e:
+		print(f"Warning: Error processing a table: {str(e)}")
+		return "\n[Error processing table. Refer to original document.]\n\n", all_defined_terms
 
-    return table_md + "\n", all_defined_terms
+	return table_md + "\n", all_defined_terms
+
 
 # =============================================================================
 # Definition Extraction Logic (Specific to Section 995-1 formatting)
 # =============================================================================
 
 def identify_definition_start(paragraph):
-    term = ""
-    if not paragraph.text.strip(): return None
+	term = ""
+	if not paragraph.text.strip(): return None
 
-    # Handle potential missing runs attribute
-    if not hasattr(paragraph, 'runs'):
-        return None
+	# Handle potential missing runs attribute
+	if not hasattr(paragraph, 'runs'):
+		return None
 
-    for run in paragraph.runs:
-        if not term.strip() and not run.text.strip(): continue
-        if run.bold and run.italic:
-            term += run.text
-        else:
-            return term.strip() if term.strip() else None
-    return term.strip() if term.strip() else None
+	for run in paragraph.runs:
+		if not term.strip() and not run.text.strip(): continue
+		if run.bold and run.italic:
+			term += run.text
+		else:
+			return term.strip() if term.strip() else None
+	return term.strip() if term.strip() else None
+
 
 def process_definition_content(block) -> Tuple[str, Set[str]]:
-    content_md = ""
-    defined_terms = set()
+	content_md = ""
+	defined_terms = set()
 
-    if isinstance(block, Paragraph):
-        text = block.text.strip().replace('\u00A0', ' ')
+	if isinstance(block, Paragraph):
+		text = block.text.strip().replace('\u00A0', ' ')
 
-        img_md, img_terms = get_image_alt_text(block)
-        content_md += img_md
-        defined_terms.update(img_terms)
+		img_md, img_terms = get_image_alt_text(block)
+		content_md += img_md
+		defined_terms.update(img_terms)
 
-        if text:
-            indentation = get_indentation(block)
-            terms = identify_defined_terms(text)
-            defined_terms.update(terms)
-            content_md += f"{indentation}{text}\n\n"
+		if text:
+			indentation = get_indentation(block)
+			terms = identify_defined_terms(text)
+			defined_terms.update(terms)
+			content_md += f"{indentation}{text}\n\n"
 
-        return content_md, defined_terms
+		return content_md, defined_terms
 
-    elif isinstance(block, Table):
-        return process_table(block)
+	elif isinstance(block, Table):
+		return process_table(block)
 
-    return "", set()
+	return "", set()
+
 
 def clean_definition_start(paragraph, term) -> Tuple[str, Set[str]]:
-    text = paragraph.text.strip().replace('\u00A0', ' ')
-    try:
-        pattern = re.compile(r'^' + re.escape(term), re.IGNORECASE)
-        text = pattern.sub('', text, count=1).strip()
-    except re.error:
-        return process_definition_content(paragraph)
+	text = paragraph.text.strip().replace('\u00A0', ' ')
+	try:
+		pattern = re.compile(r'^' + re.escape(term), re.IGNORECASE)
+		text = pattern.sub('', text, count=1).strip()
+	except re.error:
+		return process_definition_content(paragraph)
 
-    if text.startswith((':', '—', '-')):
-          text = text[1:].strip()
+	if text.startswith((':', '—', '-')):
+		text = text[1:].strip()
 
-    if text.lower().startswith('means:'):
-        text = text[len('means:'):].strip()
+	if text.lower().startswith('means:'):
+		text = text[len('means:'):].strip()
 
-    content_md, defined_terms = get_image_alt_text(paragraph)
+	content_md, defined_terms = get_image_alt_text(paragraph)
 
-    if text:
-        indentation = get_indentation(paragraph)
-        terms = identify_defined_terms(text)
-        defined_terms.update(terms)
-        content_md += f"{indentation}{text}\n\n"
+	if text:
+		indentation = get_indentation(paragraph)
+		terms = identify_defined_terms(text)
+		defined_terms.update(terms)
+		content_md += f"{indentation}{text}\n\n"
 
-    return content_md, defined_terms
+	return content_md, defined_terms
+
 
 # =============================================================================
 # Structural Identification (Semantic Labeling)
 # =============================================================================
 
 def parse_title(title, level):
-    """Parses the title string using patterns defined in config.py."""
-    parsed_data = {
-        "type": f"Level{level}Element",
-        "id": None,
-        "name": title,
-        "ref_id": None
-    }
+	"""Parses the title string using patterns defined in config.py."""
+	parsed_data = {
+		"type": f"Level{level}Element",
+		"id": None,
+		"name": title,
+		"ref_id": None
+	}
 
-    if title.lower().startswith("guide to"):
-        parsed_data["type"] = "Guide"
-        return parsed_data
-    if title.lower().startswith("operative provision"):
-        parsed_data["type"] = "OperativeProvision"
-        return parsed_data
+	if title.lower().startswith("guide to"):
+		parsed_data["type"] = "Guide"
+		return parsed_data
+	if title.lower().startswith("operative provision"):
+		parsed_data["type"] = "OperativeProvision"
+		return parsed_data
 
-    if level == 5:
-        match = config.TITLE_PATTERNS["Section"].match(title)
-        if match:
-            parsed_data["type"] = "Section"
-            parsed_data["id"] = match.group(1).strip()
-            parsed_data["name"] = match.group(2).strip()
+	if level == 5:
+		match = config.TITLE_PATTERNS["Section"].match(title)
+		if match:
+			parsed_data["type"] = "Section"
+			parsed_data["id"] = match.group(1).strip()
+			parsed_data["name"] = match.group(2).strip()
 
-    if parsed_data["type"] == f"Level{level}Element":
-        match = config.TITLE_PATTERNS["Structure"].match(title)
-        if match:
-            parsed_data["type"] = match.group(1).capitalize()
-            parsed_data["id"] = match.group(2).strip()
-            if match.group(3):
-                parsed_data["name"] = match.group(3).strip()
-            else:
-                parsed_data["name"] = ""
+	if parsed_data["type"] == f"Level{level}Element":
+		match = config.TITLE_PATTERNS["Structure"].match(title)
+		if match:
+			parsed_data["type"] = match.group(1).capitalize()
+			parsed_data["id"] = match.group(2).strip()
+			if match.group(3):
+				parsed_data["name"] = match.group(3).strip()
+			else:
+				parsed_data["name"] = ""
 
-    # Generate standardized ref_id: ACT:Element:Identifier
-    if parsed_data["id"]:
-        ref_type = parsed_data["type"]
-        parsed_data["ref_id"] = f"{config.ACT_ID}:{ref_type}:{parsed_data['id']}"
+	# Generate standardized ref_id: ACT:Element:Identifier
+	if parsed_data["id"]:
+		ref_type = parsed_data["type"]
+		parsed_data["ref_id"] = f"{config.ACT_ID}:{ref_type}:{parsed_data['id']}"
 
-    return parsed_data
+	return parsed_data
+
 
 # =============================================================================
 # Finalization Callback (Integration Point for LLM)
 # =============================================================================
 
-def finalize_section(section: Dict, hierarchy_context: List[str], executor: Optional[ThreadPoolExecutor] = None, futures: Optional[List] = None):
-    """
-    Processes the aggregated content of a section. Submits LLM processing to the thread pool.
-    (This function is called by process_document when a section is complete)
-    """
-    if isinstance(section, dict):
-        # Clean the markdown content first
-        section["content_md"] = section["content_md"].strip()
+def finalize_section(section: Dict, hierarchy_context: List[str], executor: Optional[ThreadPoolExecutor] = None,
+					 futures: Optional[List] = None):
+	"""
+	Processes the aggregated content of a section. Submits LLM processing to the thread pool.
+	(This function is called by process_document when a section is complete)
+	"""
+	if isinstance(section, dict):
+		# Clean the markdown content first
+		section["content_md"] = section["content_md"].strip()
 
-        # If an executor is provided and LLM is active, submit the task concurrently
-        # MODIFICATION: Access LLM_CLIENT via its module
-        if executor and futures is not None and llm_extraction.LLM_CLIENT and section["content_md"]:
-            # Submit the task to the thread pool
-            future = executor.submit(
-                llm_extraction.process_section_llm_task, # Use the module path for the task
-                section,
-                hierarchy_context
-            )
-            futures.append(future)
+		# If an executor is provided and LLM is active, submit the task concurrently
+		# MODIFICATION: Access LLM_CLIENT via its module
+		if executor and futures is not None and llm_extraction.LLM_CLIENT and section["content_md"]:
+			# Submit the task to the thread pool
+			future = executor.submit(
+				llm_extraction.process_section_llm_task,  # Use the module path for the task
+				section,
+				hierarchy_context
+			)
+			futures.append(future)
+
 
 # =============================================================================
 # Main Document Processing Loop
 # =============================================================================
 
-def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor] = None, futures: Optional[List] = None):
-    """
-    Processes a single .docx file.
-    (Adapted signature to accept executor and futures for concurrent processing)
-    """
-    try:
-        doc = docx.Document(filepath)
-    except Exception as e:
-        print(f"Error opening document {filepath}: {str(e)}")
-        return []
+def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor] = None,
+					 futures: Optional[List] = None):
+	"""
+	Processes a single .docx file.
+	(Adapted signature to accept executor and futures for concurrent processing)
+	"""
+	try:
+		doc = docx.Document(filepath)
+	except Exception as e:
+		print(f"Error opening document {filepath}: {str(e)}")
+		return []
 
-    # Setup for hierarchy tracking
-    structure = []
-    hierarchy_stack = [structure] # Stack starts with the root list
-    current_section = None
+	# Setup for hierarchy tracking
+	structure = []
+	hierarchy_stack = [structure]  # Stack starts with the root list
+	current_section = None
 
-    # Setup for definition tracking
-    in_definitions_section = False
-    current_definition_term = None
+	# Setup for definition tracking
+	in_definitions_section = False
+	current_definition_term = None
 
-    # Progress bar setup
-    try:
-        # Estimate total blocks based on body children
-        total_blocks = len(doc.element.body.getchildren())
-    except Exception:
-        total_blocks = None
+	# Progress bar setup
+	try:
+		# Estimate total blocks based on body children
+		total_blocks = len(doc.element.body.getchildren())
+	except Exception:
+		total_blocks = None
 
-    block_iterator = iter_block_items(doc)
+	block_iterator = iter_block_items(doc)
 
-    progress_bar_doc = tqdm(
-        block_iterator, total=total_blocks,
-        desc=f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
-        unit="block", leave=False, ncols=100, position=2
-    )
+	progress_bar_doc = tqdm(
+		block_iterator, total=total_blocks,
+		desc=f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
+		unit="block", leave=False, ncols=100, position=2
+	)
 
-    # Main processing loop
-    for block in progress_bar_doc:
+	# Main processing loop
+	for block in progress_bar_doc:
 
-        is_paragraph = isinstance(block, Paragraph)
-        is_table = isinstance(block, Table)
-        style_name = None
-        text = ""
+		is_paragraph = isinstance(block, Paragraph)
+		is_table = isinstance(block, Table)
+		style_name = None
+		text = ""
 
-        # Extract basic info from paragraphs
-        if is_paragraph:
-            if block.style and hasattr(block.style, 'name'):
-                style_name = block.style.name
-                if should_ignore_style(style_name):
-                    continue
-            # Clean text and normalize whitespace
-            text = block.text.strip().replace('\u00A0', ' ')
+		# Extract basic info from paragraphs
+		if is_paragraph:
+			if block.style and hasattr(block.style, 'name'):
+				style_name = block.style.name
+				if should_ignore_style(style_name):
+					continue
+			# Clean text and normalize whitespace
+			text = block.text.strip().replace('\u00A0', ' ')
 
-        # 1. Handle Headings (Hierarchy Management)
-        if is_paragraph and style_name in config.STYLE_MAP:
-            level = config.STYLE_MAP[style_name]
-            if not text: continue
+		# 1. Handle Headings (Hierarchy Management)
+		if is_paragraph and style_name in config.STYLE_MAP:
+			level = config.STYLE_MAP[style_name]
+			if not text: continue
 
-            # Parse title data (only in Pass 2)
-            title_data = {"name": text}
-            if pass_num == 2:
-                title_data = parse_title(text, level)
+			# Parse title data (only in Pass 2)
+			title_data = {"name": text}
+			if pass_num == 2:
+				title_data = parse_title(text, level)
 
-            # Initialize new section structure (using sets for accumulation)
-            new_section = {
-                "level": level, "title": text,
-                "type": title_data.get("type"), "id": title_data.get("id"),
-                "name": title_data.get("name"), "ref_id": title_data.get("ref_id"),
-                "content_md": "", "references": set(), "defined_terms_used": set(),
-                "children": []
-            }
+			# Initialize new section structure (using sets for accumulation)
+			new_section = {
+				"level": level, "title": text,
+				"type": title_data.get("type"), "id": title_data.get("id"),
+				"name": title_data.get("name"), "ref_id": title_data.get("ref_id"),
+				"content_md": "", "references": set(), "defined_terms_used": set(),
+				"children": []
+			}
 
-            # Manage hierarchy stack: pop until the correct parent level is reached
-            while len(hierarchy_stack) > level:
-                popped_section = hierarchy_stack.pop()
-                # CRITICAL CHANGE: Call finalize_section with executor and futures
-                if pass_num == 2:
-                    # Generate hierarchy context (list of parent ref_ids)
-                    hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if isinstance(item, dict) and item.get("ref_id")]
-                    # Pass the executor and futures list to the finalizer
-                    finalize_section(popped_section, hierarchy_context, executor, futures)
+			# Manage hierarchy stack: pop until the correct parent level is reached
+			while len(hierarchy_stack) > level:
+				popped_section = hierarchy_stack.pop()
+				# CRITICAL CHANGE: Call finalize_section with executor and futures
+				if pass_num == 2:
+					# Generate hierarchy context (list of parent ref_ids)
+					hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
+										 isinstance(item, dict) and item.get("ref_id")]
+					# Pass the executor and futures list to the finalizer
+					finalize_section(popped_section, hierarchy_context, executor, futures)
 
-            # Add the new section to the hierarchy
-            if pass_num == 2:
-                parent_container = hierarchy_stack[-1]
-                if isinstance(parent_container, list):
-                    parent_container.append(new_section)
-                elif isinstance(parent_container, dict) and "children" in parent_container:
-                    parent_container["children"].append(new_section)
+			# Add the new section to the hierarchy
+			if pass_num == 2:
+				parent_container = hierarchy_stack[-1]
+				if isinstance(parent_container, list):
+					parent_container.append(new_section)
+				elif isinstance(parent_container, dict) and "children" in parent_container:
+					parent_container["children"].append(new_section)
 
-                hierarchy_stack.append(new_section)
-                current_section = new_section
-            else:
-                # In Pass 1, we just need a flag that we are inside a section
-                current_section = True
+				hierarchy_stack.append(new_section)
+				current_section = new_section
+			else:
+				# In Pass 1, we just need a flag that we are inside a section
+				current_section = True
 
-            # --- Definition section tracking (Pass 1 specific logic) ---
-            # Check if entering or exiting the definitions section (Section 995-1)
-            if level == 5 and (text.startswith("995-1") or text.startswith("995 1")):
-                in_definitions_section = True
-                current_definition_term = None
-                if pass_num == 1:
-                    progress_bar_doc.set_description(f"  Extracting Definitions (995-1)...", refresh=True)
-            elif level < 5 and in_definitions_section:
-                # If a higher-level heading appears, we have left the definitions section
-                in_definitions_section = False
-                current_definition_term = None
-                if pass_num == 1:
-                    # Reset progress bar description
-                    progress_bar_doc.set_description(f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})", refresh=True)
+			# --- Definition section tracking (Pass 1 specific logic) ---
+			# Check if entering or exiting the definitions section (Section 995-1)
+			if level == 5 and (text.startswith("995-1") or text.startswith("995 1")):
+				in_definitions_section = True
+				current_definition_term = None
+				if pass_num == 1:
+					progress_bar_doc.set_description(f"  Extracting Definitions (995-1)...", refresh=True)
+			elif level < 5 and in_definitions_section:
+				# If a higher-level heading appears, we have left the definitions section
+				in_definitions_section = False
+				current_definition_term = None
+				if pass_num == 1:
+					# Reset progress bar description
+					progress_bar_doc.set_description(f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
+													 refresh=True)
 
-            continue # Proceed to the next block after handling a heading
+			continue  # Proceed to the next block after handling a heading
 
-        # 2. Handle Content
-        if current_section:
+		# 2. Handle Content
+		if current_section:
 
-            # --- Definition Extraction Logic (Pass 1) ---
-            if pass_num == 1 and in_definitions_section:
-                new_term = None
-                if is_paragraph:
-                    new_term = identify_definition_start(block)
+			# --- Definition Extraction Logic (Pass 1) ---
+			if pass_num == 1 and in_definitions_section:
+				new_term = None
+				if is_paragraph:
+					new_term = identify_definition_start(block)
 
-                if new_term:
-                    # Start a new definition
-                    current_definition_term = new_term
-                    if current_definition_term not in DEFINITIONS_995_1:
-                        DEFINITIONS_995_1[current_definition_term] = {
-                            "content_md": "", "references": set(), "defined_terms_used": set()
-                        }
-                    # Process the starting line of the definition
-                    content, terms = clean_definition_start(block, new_term)
-                    DEFINITIONS_995_1[current_definition_term]["content_md"] += content
-                    DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
+				if new_term:
+					# Start a new definition
+					current_definition_term = new_term
+					if current_definition_term not in DEFINITIONS_995_1:
+						DEFINITIONS_995_1[current_definition_term] = {
+							"content_md": "", "references": set(), "defined_terms_used": set()
+						}
+					# Process the starting line of the definition
+					content, terms = clean_definition_start(block, new_term)
+					DEFINITIONS_995_1[current_definition_term]["content_md"] += content
+					DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
 
-                elif current_definition_term:
-                    # Continue processing subsequent blocks of the current definition
-                    content, terms = process_definition_content(block)
-                    if current_definition_term in DEFINITIONS_995_1:
-                        DEFINITIONS_995_1[current_definition_term]["content_md"] += content
-                        DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
+				elif current_definition_term:
+					# Continue processing subsequent blocks of the current definition
+					content, terms = process_definition_content(block)
+					if current_definition_term in DEFINITIONS_995_1:
+						DEFINITIONS_995_1[current_definition_term]["content_md"] += content
+						DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
 
-            # --- Standard Content Processing (Pass 2) ---
-            if pass_num == 2:
-                if is_paragraph:
-                    alt_text_md, alt_terms = get_image_alt_text(block)
-                    if alt_text_md:
-                        current_section["content_md"] += alt_text_md
-                        current_section["defined_terms_used"].update(alt_terms)
+			# --- Standard Content Processing (Pass 2) ---
+			if pass_num == 2:
+				if is_paragraph:
+					alt_text_md, alt_terms = get_image_alt_text(block)
+					if alt_text_md:
+						current_section["content_md"] += alt_text_md
+						current_section["defined_terms_used"].update(alt_terms)
 
-                    if text:
-                        indentation = get_indentation(block)
-                        # Identify terms (using precise regex in Pass 2)
-                        terms = identify_defined_terms(text)
-                        current_section["defined_terms_used"].update(terms)
+					if text:
+						indentation = get_indentation(block)
+						# Identify terms (using precise regex in Pass 2)
+						terms = identify_defined_terms(text)
+						current_section["defined_terms_used"].update(terms)
 
-                        processed_text = text
+						processed_text = text
 
-                        # Apply formatting based on known styles (Simplified logic matching original script intent)
-                        if style_name == 'SubsectionHead':
-                             processed_text = f"*{processed_text}*"
-                        elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
-                             processed_text = f"_{processed_text}_"
+						# Apply formatting based on known styles (Simplified logic matching original script intent)
+						if style_name == 'SubsectionHead':
+							processed_text = f"*{processed_text}*"
+						elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
+							processed_text = f"_{processed_text}_"
 
-                        # Append content to the current section
-                        current_section["content_md"] += f"{indentation}{processed_text}\n\n"
+						# Append content to the current section
+						current_section["content_md"] += f"{indentation}{processed_text}\n\n"
 
-                elif is_table:
-                    # Handle tables
-                    table_md, table_terms = process_table(block)
-                    current_section["content_md"] += table_md
-                    current_section["defined_terms_used"].update(table_terms)
+				elif is_table:
+					# Handle tables
+					table_md, table_terms = process_table(block)
+					current_section["content_md"] += table_md
+					current_section["defined_terms_used"].update(table_terms)
 
-    # Close the progress bar for this document
-    progress_bar_doc.close()
+	# Close the progress bar for this document
+	progress_bar_doc.close()
 
-    # Finalize remaining sections on the stack after the document ends
-    if pass_num == 2:
-        while len(hierarchy_stack) > 1:
-            popped_section = hierarchy_stack.pop()
-            hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if isinstance(item, dict) and item.get("ref_id")]
-            # Pass the executor and futures list to the finalizer
-            finalize_section(popped_section, hierarchy_context, executor, futures)
+	# Finalize remaining sections on the stack after the document ends
+	if pass_num == 2:
+		while len(hierarchy_stack) > 1:
+			popped_section = hierarchy_stack.pop()
+			hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
+								 isinstance(item, dict) and item.get("ref_id")]
+			# Pass the executor and futures list to the finalizer
+			finalize_section(popped_section, hierarchy_context, executor, futures)
 
-    return structure
+	return structure

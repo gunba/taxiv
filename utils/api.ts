@@ -1,16 +1,16 @@
 // utils/api.ts
-import type { TaxDataObject, HierarchyNode } from '../types';
+import type {HierarchyNode, TaxDataObject} from '../types';
 
 // We use the path '/api' which Vite proxies to the backend container.
 const API_BASE_PATH = '/api';
 
 async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => 'Unable to read error response body');
-    console.error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
-    throw new Error(`API request failed with status ${response.status}. Details: ${errorText}`);
-  }
-  return response.json() as Promise<T>;
+    if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unable to read error response body');
+        console.error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(`API request failed with status ${response.status}. Details: ${errorText}`);
+    }
+    return response.json() as Promise<T>;
 }
 
 export const api = {
