@@ -53,8 +53,8 @@ export interface HierarchyNode {
     type: string;
     has_children: boolean;
     sibling_order?: number | null;
-    // Added optional children property to support the tree structure returned by the search API
-    children?: HierarchyNode[];
+    // Optional children property; null when the API omits nested nodes
+    children?: HierarchyNode[] | null;
 }
 
 
