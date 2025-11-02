@@ -169,6 +169,10 @@ class GraphAnalyzer:
 				logger.warning(f"Root level element '{internal_id}' processed without parent LTree path.")
 				current_ltree_path = path_component
 
+			# Store the calculated path and parent link
+			self.node_registry[internal_id]["hierarchy_path_ltree"] = Ltree(current_ltree_path)
+			self.node_registry[internal_id]["parent_internal_id"] = parent_internal_id
+
 			# --- Populate id_type_registry (Standardized Key) ---
 			if node_type and node_id:
 				str_node_id = str(node_id)
@@ -180,11 +184,6 @@ class GraphAnalyzer:
 				elif self.id_type_registry[registry_key] != node_type:
 					if node_type != 'Definition' and self.id_type_registry[registry_key] == 'Definition':
 						self.id_type_registry[registry_key] = node_type
-
-			# Store the calculated path and parent link
-				self.node_registry[internal_id]["hierarchy_path_ltree"] = Ltree(current_ltree_path)
-				self.node_registry[internal_id]["parent_internal_id"] = parent_internal_id
-
 			# Add CONTAINS Edge (For graph structure visualization if needed)
 			if parent_internal_id:
 				self.G.add_edge(parent_internal_id, internal_id, type='CONTAINS')
