@@ -175,7 +175,7 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
         if (/^\s*\([a-z]\)/.test(textContent)) indentClass = 'pl-12'; // (a)
         if (/^\s*\([ivx]+\)/.test(textContent)) indentClass = 'pl-[4.5rem]'; // (i)
 
-        return <p className={`mb-4 ${indentClass}`}>{processChildren(children)}</p>;
+        return <p className={`mb-2 ${indentClass}`}>{processChildren(children)}</p>;
     };
 
     // Apply processing to list items and table cells as well

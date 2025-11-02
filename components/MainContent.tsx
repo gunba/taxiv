@@ -215,7 +215,7 @@ const MainContent: React.FC<MainContentProps> = ({
             {renderedNodes.map((provision, index) => (
                 <article
                     key={provision.internal_id}
-                    className={index === 0 ? '' : 'pt-8 mt-8 border-t border-gray-800'}
+                    className={index === 0 ? '' : 'pt-6 mt-6 border-t border-gray-800'}
                 >
                     {index === 0 ? (
                         <>
@@ -250,8 +250,6 @@ const MainContent: React.FC<MainContentProps> = ({
                             <div className="prose prose-invert prose-sm sm:prose-base max-w-none">
                                 <p className="text-sm font-semibold text-blue-400">{provision.type}</p>
                                 <h1 className="text-2xl md:text-3xl font-bold text-gray-100 mt-1">{provision.title}</h1>
-                                {provision.ref_id &&
-                                    <p className="text-xs text-gray-500 font-mono mt-2">{provision.ref_id}</p>}
                             </div>
                         </>
                     ) : (
@@ -265,13 +263,11 @@ const MainContent: React.FC<MainContentProps> = ({
                                 <h2 className="text-xl md:text-2xl font-bold text-gray-100 mt-1 group-hover:text-blue-200 group-hover:underline">
                                     {provision.title}
                                 </h2>
-                                {provision.ref_id &&
-                                    <p className="text-xs text-gray-500 font-mono mt-1">{provision.ref_id}</p>}
                             </button>
                         </header>
                     )}
 
-                    <div className="mt-4 text-gray-300 leading-relaxed prose prose-invert max-w-none">
+                    <div className="mt-4 text-gray-300 leading-7 prose prose-invert max-w-none">
                         <InteractiveContent
                             key={provision.internal_id}
                             node={provision}
