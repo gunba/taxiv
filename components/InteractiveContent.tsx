@@ -16,12 +16,40 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
 
     // Identify clickable elements based on API data
     const clickables = useMemo(() => {
-        const items: { text: string; handler: () => void; type: 'ref' | 'term' }[] = [];
+        type ClickableItem =
+            | { text: string; handler: () => void; type: 'ref' | 'term' }
+            | { text: string; handler: () => void; type: 'external'; href: string };
+
+        const items: ClickableItem[] = [];
 
         // 1. Handle References (using snippet and target_ref_id)
         node.references_to.forEach(ref => {
             // We rely on the snippet being the exact text to highlight.
             if (ref.snippet && ref.target_ref_id) {
+                const targetsSameAct = ref.target_ref_id.startsWith(node.act_id);
+
+                if (targetsSameAct && !ref.target_title) {
+                    // Skip unresolved internal references lacking target title data.
+                    return;
+                }
+
+                if (!targetsSameAct) {
+                    const query = encodeURIComponent(ref.target_ref_id.replace(/[:_-]+/g, ' '));
+                    const href = `https://www.google.com/search?q=${query}`;
+
+                    items.push({
+                        text: ref.snippet,
+                        handler: () => {
+                            if (typeof window !== 'undefined') {
+                                window.open(href, '_blank', 'noopener,noreferrer');
+                            }
+                        },
+                        type: 'external',
+                        href,
+                    });
+                    return;
+                }
+
                 items.push({
                     text: ref.snippet,
                     handler: () => onReferenceByRefIdClick(ref.target_ref_id),
@@ -76,17 +104,39 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
             if (!part) return null;
             const clickable = clickables.find(c => c.text === part);
             if (clickable) {
+                const baseClass =
+                    'inline font-medium transition-colors hover:underline focus-visible:underline focus-visible:outline-none';
+
+                if (clickable.type === 'external') {
+                    return (
+                        <a
+                            key={i}
+                            href={clickable.href}
+                            onClick={event => {
+                                event.preventDefault();
+                                clickable.handler();
+                            }}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-interactive-token="true"
+                            className={`${baseClass} text-amber-400 hover:text-amber-300 focus-visible:text-amber-200`}
+                        >
+                            {part}
+                        </a>
+                    );
+                }
+
                 return (
                     <button
                         key={i}
                         onClick={clickable.handler}
                         type="button"
                         data-interactive-token="true"
-                        className={`inline font-medium transition-colors ${
+                        className={`${baseClass} ${
                             clickable.type === 'ref'
                                 ? 'text-blue-400 hover:text-blue-300 focus-visible:text-blue-200'
                                 : 'text-green-400 hover:text-green-300 focus-visible:text-green-200'
-                        } hover:underline focus-visible:underline focus-visible:outline-none`}
+                        }`}
                     >
                         {part}
                     </button>
