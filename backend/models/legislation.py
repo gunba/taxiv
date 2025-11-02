@@ -32,7 +32,7 @@ class Provision(Base):
 	# Hierarchy Management using LTree (e.g., ActID.Chapter_1.Section_10_5)
 	hierarchy_path_ltree = Column(LTREE, nullable=False)
 	parent_internal_id = Column(String(255), ForeignKey('provisions.internal_id'), index=True)
-	sibling_order = Column(Integer)
+	sibling_order = Column(Integer, info={"auto_heal": True})
 
 	# Metrics
 	pagerank = Column(Float, default=0.0)
