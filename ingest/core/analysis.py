@@ -101,7 +101,7 @@ class GraphAnalyzer:
 
     # --- PASS 1: Build Structure, LTree Paths, and Type Registry ---
 
-    def process_node_pass1(self, node, parent_internal_id=None, ltree_path=""):
+    def process_node_pass1(self, node, parent_internal_id=None, ltree_path="", sibling_index=None):
         """
         (ADAPTED) Calculates LTree paths and populates the registry (using ACT/ID keys).
         """
@@ -164,6 +164,7 @@ class GraphAnalyzer:
             # Store the calculated path and parent link
             self.node_registry[internal_id]["hierarchy_path_ltree"] = Ltree(current_ltree_path)
             self.node_registry[internal_id]["parent_internal_id"] = parent_internal_id
+            self.node_registry[internal_id]["sibling_order"] = sibling_index
 
             # Add CONTAINS Edge (For graph structure visualization if needed)
             if parent_internal_id:
@@ -174,13 +175,15 @@ class GraphAnalyzer:
             retrieved_ltree = self.node_registry[internal_id].get("hierarchy_path_ltree")
             if isinstance(retrieved_ltree, Ltree):
                 current_ltree_path = str(retrieved_ltree)
+            if sibling_index is not None:
+                self.node_registry[internal_id]["sibling_order"] = sibling_index
             # else: current_ltree_path remains as passed in (ltree_path)
 
 
         # Recurse into children
-        for child in node.get("children", []):
-            # Pass the calculated path down to children
-            self.process_node_pass1(child, internal_id, current_ltree_path)
+        for index, child in enumerate(node.get("children", [])):
+            # Pass the calculated path and sibling order down to children
+            self.process_node_pass1(child, internal_id, current_ltree_path, sibling_index=index)
 
     # --- PASS 2: Reference Validation ---
 
@@ -413,6 +416,7 @@ class GraphAnalyzer:
                 "level": node_data.get("level"),
                 "hierarchy_path_ltree": node_data.get("hierarchy_path_ltree"), # ADAPTED
                 "parent_internal_id": node_data.get("parent_internal_id"),
+                "sibling_order": node_data.get("sibling_order"),
                 "pagerank": pagerank,
                 "in_degree": in_degree,
                 "out_degree": out_degree

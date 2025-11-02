@@ -37,6 +37,7 @@ class ProvisionDetail(ORMBase):
     # LTree paths must be serialized as strings (handled in CRUD)
     hierarchy_path_ltree: str
     parent_internal_id: Optional[str]
+    sibling_order: Optional[int]
 
     # Metrics
     pagerank: float
@@ -56,6 +57,7 @@ class ProvisionHierarchy(ORMBase):
     title: str
     type: str
     has_children: bool # Calculated in CRUD
+    sibling_order: Optional[int] = None
 
 
 class BreadcrumbItem(BaseModel):
