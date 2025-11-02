@@ -9,7 +9,7 @@
 ## Error Handling and Logging
 *   All asynchronous operations and external interactions (API calls, database access) must have robust error handling.
 *   Do not expose internal error details to the end-user.
-*   **Logging:** (This section will be expanded once the logging solution is created). Use appropriate log levels (INFO, WARNING, ERROR). Log exceptions with full stack traces.
+*   Use appropriate log levels (INFO, WARNING, ERROR). Log exceptions with full stack traces.
 
 ## Security
 *   Validate and sanitize all user inputs.
