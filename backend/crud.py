@@ -84,7 +84,9 @@ def search_hierarchy(db: Session, act_id: str, query: str) -> List[ProvisionHier
 	# We use to_tsvector for the content and to_tsquery for the query string.
 	matched_provisions_subq = db.query(models.Provision.internal_id).filter(
 		models.Provision.act_id == act_id,
-		func.to_tsvector('english', models.Provision.title).match(func.to_tsquery('english', query))
+		func.to_tsvector('english', models.Provision.title).op('@@')(
+			func.plainto_tsquery('english', query)
+		)
 	).subquery()
 
 	# 2. Get the LTree paths of all matched provisions
