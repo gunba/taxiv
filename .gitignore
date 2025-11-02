@@ -28,8 +28,7 @@ dist-ssr
 .env
 
 # Project artifacts
-dev/
-ingest/output
-ingest/output
-ingest/output/intermediate
-ingest/output/final
+/dev/
+/ingest/output/
+/ingest/output/intermediate/
+/ingest/output/final/
