@@ -107,12 +107,17 @@ def search_hierarchy(db: Session, act_id: str, query: str) -> List[ProvisionHier
         models.Provision.ref_id,
         models.Provision.title,
         models.Provision.type,
+        models.Provision.sibling_order,
         children_exists_subq
     ).join(
         union_subq, models.Provision.hierarchy_path_ltree == union_subq.c.hierarchy_path_ltree
     ).filter(
         models.Provision.act_id == act_id
-    ).order_by(models.Provision.hierarchy_path_ltree).all()
+    ).order_by(
+        case((models.Provision.sibling_order.is_(None), 1), else_=0),
+        models.Provision.sibling_order,
+        models.Provision.hierarchy_path_ltree
+    ).all()
 
     return [ProvisionHierarchy.model_validate(r._asdict()) for r in results]
 
@@ -195,6 +200,7 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
         models.Provision.ref_id,
         models.Provision.title,
         models.Provision.type,
+        models.Provision.sibling_order,
         # Use the correlated subquery to determine has_children for each row
         children_exists_subq
     ).filter(models.Provision.act_id == act_id)
@@ -205,8 +211,12 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
         # Top-level elements have no parent
         query = query.filter(models.Provision.parent_internal_id == None)
 
-    # Order by LTree path for natural structural ordering
-    results = query.order_by(models.Provision.hierarchy_path_ltree).all()
+    # Order by sibling order when available, falling back to hierarchy path
+    results = query.order_by(
+        case((models.Provision.sibling_order.is_(None), 1), else_=0),
+        models.Provision.sibling_order,
+        models.Provision.hierarchy_path_ltree
+    ).all()
 
     # Convert results to Pydantic models
     return [ProvisionHierarchy.model_validate(r._asdict()) for r in results]

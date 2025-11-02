@@ -297,9 +297,9 @@ def run_analysis_and_loading(config: Config):
             try:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                for item in data:
+                for index, item in enumerate(data):
                     # ADAPTED: Start LTree path calculation with the sanitized Act ID
-                    analyzer.process_node_pass1(item, ltree_path=ACT_LTREE_ROOT)
+                    analyzer.process_node_pass1(item, ltree_path=ACT_LTREE_ROOT, sibling_index=index)
             except Exception as e:
                 logger.error(f"Error (Pass 1) processing {filepath}: {e}")
                 logger.error(traceback.format_exc())
@@ -327,7 +327,7 @@ def run_analysis_and_loading(config: Config):
                 parent_internal_id = None
                 parent_ltree_path = ACT_LTREE_ROOT
 
-            for term, data in definitions_data.items():
+            for index, (term, data) in enumerate(definitions_data.items()):
                 # Reconstruct the synthetic node structure (Logic from original script)
                 sanitized_term_for_id = re.sub(r'[^\w\-]+', '_', term)
                 if not sanitized_term_for_id:
@@ -345,7 +345,7 @@ def run_analysis_and_loading(config: Config):
                     "defined_terms_used": data.get("defined_terms_used", []), "children": []
                 }
                 # Process the definition node, passing the parent context
-                analyzer.process_node_pass1(synthetic_node, parent_internal_id, parent_ltree_path)
+                analyzer.process_node_pass1(synthetic_node, parent_internal_id, parent_ltree_path, sibling_index=index)
 
         except Exception as e:
             logger.error(f"Error (Pass 1) loading definitions file {def_filepath}: {e}")

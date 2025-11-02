@@ -32,6 +32,7 @@ export interface TaxDataObject {
   level: number;
   hierarchy_path_ltree: string;
   parent_internal_id?: string;
+  sibling_order?: number | null;
 
   // Metrics
   pagerank: number;
@@ -51,6 +52,7 @@ export interface HierarchyNode {
   title: string;
   type: string;
   has_children: boolean;
+  sibling_order?: number | null;
   // Added optional children property to support the tree structure returned by the search API
   children?: HierarchyNode[];
 }
