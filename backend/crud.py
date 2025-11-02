@@ -88,17 +88,24 @@ def search_hierarchy(db: Session, act_id: str, query: str) -> List[ProvisionHier
 	).subquery()
 
 	# 2. Get the LTree paths of all matched provisions
-	matched_paths_subq = db.query(models.Provision.hierarchy_path_ltree).join(
-		matched_provisions_subq, models.Provision.internal_id == matched_provisions_subq.c.internal_id
+	matched_paths_subq = db.query(
+	models.Provision.hierarchy_path_ltree.label("hierarchy_path_ltree")
+	).join(
+	matched_provisions_subq, models.Provision.internal_id == matched_provisions_subq.c.internal_id
 	).subquery()
 
 	# 3. Find all provisions that are either a match OR an ancestor of a match.
 	# We use the LTree ancestor operator '@>' to find all parents.
 	# We also need to include the matched nodes themselves.
-	union_subq = db.query(matched_paths_subq.c.hierarchy_path_ltree).union(
-		db.query(models.Provision.hierarchy_path_ltree).join(
-			matched_paths_subq, func.text(f"hierarchy_path_ltree @> {matched_paths_subq.c.hierarchy_path_ltree}")
-		)
+	union_subq = db.query(
+	matched_paths_subq.c.hierarchy_path_ltree.label("hierarchy_path_ltree")
+	).union(
+	db.query(
+	models.Provision.hierarchy_path_ltree.label("hierarchy_path_ltree")
+	).join(
+	matched_paths_subq,
+	models.Provision.hierarchy_path_ltree.op('@>')(matched_paths_subq.c.hierarchy_path_ltree)
+	)
 	).subquery()
 
 	# 4. Fetch the final hierarchy data for the combined set of nodes.
