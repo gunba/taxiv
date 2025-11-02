@@ -58,14 +58,14 @@ class ProvisionDetail(ORMBase):
 
 
 class ProvisionHierarchy(ORMBase):
-        """A lightweight model just for the navigation hierarchy."""
-        internal_id: str
-        ref_id: str
-        title: str
-        type: str
-        has_children: bool  # Calculated in CRUD
-        sibling_order: Optional[int] = None
-        children: Optional[List["ProvisionHierarchy"]] = None
+	"""A lightweight model just for the navigation hierarchy."""
+	internal_id: str
+	ref_id: str
+	title: str
+	type: str
+	has_children: bool  # Calculated in CRUD
+	sibling_order: Optional[int] = None
+	children: Optional[List["ProvisionHierarchy"]] = None
 
 
 ProvisionHierarchy.model_rebuild()

@@ -458,7 +458,7 @@ def process_section_llm_task(section: Dict, hierarchy_context: List[str]):
 			# Extend the set. (Thread-safe as each worker operates on a unique 'section' dict)
 			section["references"].update(refs)
 
-		# Costs are updated within extract_references_with_llm
+	# Costs are updated within extract_references_with_llm
 
 	except Exception as e:
 		tqdm.write(

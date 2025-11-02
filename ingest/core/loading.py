@@ -146,7 +146,6 @@ class DatabaseLoader:
 
 		return ddl
 
-
 	def load_data(self, provisions_payload, references_payload, defined_terms_usage_payload):
 		"""
 		Loads the payload using SQLAlchemy bulk operations.
@@ -201,12 +200,14 @@ class DatabaseLoader:
 				logger.info(f"Clearing existing provisions and related data for {self.act_id}...")
 
 				# Identify the internal IDs of the provisions belonging to this act
-				provision_ids_subquery = db.query(Provision.internal_id).filter(Provision.act_id == self.act_id).subquery()
+				provision_ids_subquery = db.query(Provision.internal_id).filter(
+					Provision.act_id == self.act_id).subquery()
 
 				# Delete related data first due to foreign key constraints
 				# Note: We only delete references originating FROM this act. References pointing TO this act from others remain.
 
-				deleted_refs = db.query(Reference).filter(Reference.source_internal_id.in_(provision_ids_subquery)).delete(
+				deleted_refs = db.query(Reference).filter(
+					Reference.source_internal_id.in_(provision_ids_subquery)).delete(
 					synchronize_session=False)
 				deleted_terms = db.query(DefinedTermUsage).filter(
 					DefinedTermUsage.source_internal_id.in_(provision_ids_subquery)).delete(synchronize_session=False)

@@ -196,7 +196,7 @@ class GraphAnalyzer:
 				current_ltree_path = str(retrieved_ltree)
 			if sibling_index is not None:
 				self.node_registry[internal_id]["sibling_order"] = sibling_index
-			# else: current_ltree_path remains as passed in (ltree_path)
+		# else: current_ltree_path remains as passed in (ltree_path)
 
 		# Recurse into children
 		for index, child in enumerate(node.get("children", [])):
