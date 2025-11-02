@@ -1,6 +1,7 @@
 # ingest/core/loading.py
 import logging
 from typing import Dict, Any, List
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 import traceback
@@ -31,17 +32,94 @@ class DatabaseLoader:
     """
     def __init__(self, act_id: str, act_title: str):
         self.act_id = act_id
-        self.act_title = act_title
-        # Ensure the database connection and schema are ready
-        try:
-            # This connects to the DB defined in the .env file via backend.config
-            engine = initialize_engine()
-            if Base:
-                # Ensure tables and extensions (ltree) exist (idempotent)
-                Base.metadata.create_all(bind=engine)
-        except Exception as e:
-            logger.error(f"Database initialization failed. Cannot proceed with loading. Error: {e}")
-            raise
+		self.act_title = act_title
+		# Ensure the database connection and schema are ready
+		try:
+			# This connects to the DB defined in the .env file via backend.config
+			engine = initialize_engine()
+			if Base:
+				# Ensure tables and extensions (ltree) exist (idempotent)
+				Base.metadata.create_all(bind=engine)
+				self._ensure_required_schema(engine)
+		except Exception as e:
+			logger.error(f"Database initialization failed. Cannot proceed with loading. Error: {e}")
+			raise
+
+	def _ensure_required_schema(self, engine):
+		"""
+		Heals expected schema drift (e.g., missing columns) that ingestion depends on.
+		Adds any nullable/defaulted Provision columns that are absent.
+		"""
+		table = Provision.__table__
+		try:
+			inspector = inspect(engine)
+			existing_columns = {column["name"] for column in inspector.get_columns(table.name)}
+			candidates: List = []
+
+			for column in table.columns:
+				if column.name in existing_columns:
+					continue
+				if not self._can_auto_add(column):
+					logger.warning(
+						"Skipping auto-creation of column '%s' on '%s' (requires manual migration).",
+						column.name,
+						table.name,
+					)
+					continue
+				candidates.append(column)
+
+			if not candidates:
+				return
+
+			for column in candidates:
+				ddl = self._build_add_column_statement(engine, table, column)
+				logger.info("Adding missing column '%s' to '%s'.", column.name, table.name)
+				try:
+					with engine.begin() as connection:
+						connection.execute(text(ddl))
+				except SQLAlchemyError as exc:
+					message = str(exc).lower()
+					if "duplicate column" in message or "already exists" in message:
+						logger.info("Column '%s' already exists on '%s'; continuing.", column.name, table.name)
+						continue
+					logger.error("Failed to add column '%s' to '%s': %s", column.name, table.name, exc)
+					raise
+		except SQLAlchemyError as exc:
+			logger.error("Failed to reconcile schema for '%s': %s", table.name, exc)
+			raise
+
+	@staticmethod
+	def _can_auto_add(column):
+		"""
+		We only auto-create columns that are safe to add without additional data backfill.
+		"""
+		if column.foreign_keys:
+			return False
+		if column.autoincrement:
+			return False
+		if not column.nullable and column.server_default is None and column.default is None:
+			return False
+		return True
+
+	@staticmethod
+	def _build_add_column_statement(engine, table, column):
+		preparer = engine.dialect.identifier_preparer
+		table_sql = preparer.format_table(table)
+		column_sql = preparer.format_column(column)
+		type_sql = column.type.compile(dialect=engine.dialect)
+		ddl = f"ALTER TABLE {table_sql} ADD COLUMN {column_sql} {type_sql}"
+
+		default_clause = column.server_default
+		if default_clause is not None:
+			default_sql = default_clause.arg
+			if hasattr(default_sql, "compile"):
+				default_sql = default_sql.compile(dialect=engine.dialect)
+			ddl += f" DEFAULT {default_sql}"
+
+		if column.nullable is False:
+			ddl += " NOT NULL"
+
+		return ddl
 
     def load_data(self, provisions_payload, references_payload, defined_terms_usage_payload):
         """
