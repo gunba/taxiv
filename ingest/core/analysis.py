@@ -89,6 +89,7 @@ class GraphAnalyzer:
 		self.G = nx.DiGraph() if NETWORKX_AVAILABLE else MockNX().DiGraph()
 		self.default_act_id = default_act_id
 		self.node_registry: Dict[str, Dict[str, Any]] = {}
+		self.child_offsets: Dict[str, int] = {}
 		# Registry key format: ACT/ID (Standardized for cross-act lookups)
 		self.id_type_registry: Dict[str, str] = {}
 		self.reverse_references: Dict[str, Set[str]] = {}
@@ -181,9 +182,8 @@ class GraphAnalyzer:
 						self.id_type_registry[registry_key] = node_type
 
 			# Store the calculated path and parent link
-			self.node_registry[internal_id]["hierarchy_path_ltree"] = Ltree(current_ltree_path)
-			self.node_registry[internal_id]["parent_internal_id"] = parent_internal_id
-			self.node_registry[internal_id]["sibling_order"] = sibling_index
+				self.node_registry[internal_id]["hierarchy_path_ltree"] = Ltree(current_ltree_path)
+				self.node_registry[internal_id]["parent_internal_id"] = parent_internal_id
 
 			# Add CONTAINS Edge (For graph structure visualization if needed)
 			if parent_internal_id:
@@ -194,14 +194,36 @@ class GraphAnalyzer:
 			retrieved_ltree = self.node_registry[internal_id].get("hierarchy_path_ltree")
 			if isinstance(retrieved_ltree, Ltree):
 				current_ltree_path = str(retrieved_ltree)
-			if sibling_index is not None:
-				self.node_registry[internal_id]["sibling_order"] = sibling_index
+		if sibling_index is not None and self.node_registry[internal_id].get("sibling_order") is None:
+			self.node_registry[internal_id]["sibling_order"] = sibling_index
 		# else: current_ltree_path remains as passed in (ltree_path)
 
-		# Recurse into children
-		for index, child in enumerate(node.get("children", [])):
-			# Pass the calculated path and sibling order down to children
-			self.process_node_pass1(child, internal_id, current_ltree_path, sibling_index=index)
+		node_entry = self.node_registry[internal_id]
+		if "child_offset" not in node_entry:
+			node_entry["child_offset"] = int(node_entry.get("child_offset", 0) or 0)
+		if internal_id not in self.child_offsets:
+			self.child_offsets[internal_id] = node_entry.get("child_offset", 0)
+
+		children = node.get("children", [])
+		if not children:
+			return
+
+		parent_offset = self.child_offsets.get(internal_id, node_entry.get("child_offset", 0))
+		self.child_offsets[internal_id] = parent_offset
+		new_assignments = 0
+
+		for index, child in enumerate(children):
+			child_internal_id = self.generate_internal_id(child, internal_id)
+			existing_entry = self.node_registry.get(child_internal_id)
+			existing_order = existing_entry.get("sibling_order") if existing_entry else None
+			self.process_node_pass1(child, internal_id, current_ltree_path, sibling_index=parent_offset + index)
+			updated_entry = self.node_registry.get(child_internal_id)
+			if existing_order is None and updated_entry and updated_entry.get("sibling_order") is not None:
+				new_assignments += 1
+
+		updated_offset = parent_offset + new_assignments
+		self.child_offsets[internal_id] = updated_offset
+		node_entry["child_offset"] = updated_offset
 
 	# --- PASS 2: Reference Validation ---
 
