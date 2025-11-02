@@ -114,24 +114,59 @@ def search_hierarchy(db: Session, act_id: str, query: str) -> List[ProvisionHier
 		.filter(ChildProvision.parent_internal_id == models.Provision.internal_id) \
 		.exists().label("has_children")
 
-	results = db.query(
-		models.Provision.internal_id,
-		models.Provision.ref_id,
-		models.Provision.title,
-		models.Provision.type,
-		models.Provision.sibling_order,
-		children_exists_subq
-	).join(
-		union_subq, models.Provision.hierarchy_path_ltree == union_subq.c.hierarchy_path_ltree
-	).filter(
-		models.Provision.act_id == act_id
-	).order_by(
-		case((models.Provision.sibling_order.is_(None), 1), else_=0),
-		models.Provision.sibling_order,
-		models.Provision.hierarchy_path_ltree
-	).all()
+        results = db.query(
+                models.Provision.internal_id,
+                models.Provision.ref_id,
+                models.Provision.title,
+                models.Provision.type,
+                models.Provision.sibling_order,
+                models.Provision.parent_internal_id,
+                children_exists_subq
+        ).join(
+                union_subq, models.Provision.hierarchy_path_ltree == union_subq.c.hierarchy_path_ltree
+        ).filter(
+                models.Provision.act_id == act_id
+        ).order_by(
+                case((models.Provision.sibling_order.is_(None), 1), else_=0),
+                models.Provision.sibling_order,
+                models.Provision.hierarchy_path_ltree
+        ).all()
 
-	return [ProvisionHierarchy.model_validate(r._asdict()) for r in results]
+        if not results:
+                return []
+
+        ordered_ids: List[str] = []
+        node_map = {}
+        parent_lookup = {}
+
+        for row in results:
+                ordered_ids.append(row.internal_id)
+                node_map[row.internal_id] = {
+                        "internal_id": row.internal_id,
+                        "ref_id": row.ref_id,
+                        "title": row.title,
+                        "type": row.type,
+                        "has_children": row.has_children,
+                        "sibling_order": row.sibling_order,
+                        "children": None,
+                }
+                parent_lookup[row.internal_id] = row.parent_internal_id
+
+        for node_id in ordered_ids:
+                parent_id = parent_lookup.get(node_id)
+                if parent_id and parent_id in node_map:
+                        parent_node = node_map[parent_id]
+                        if parent_node["children"] is None:
+                                parent_node["children"] = []
+                        parent_node["children"].append(node_map[node_id])
+
+        roots = [
+                node_map[node_id]
+                for node_id in ordered_ids
+                if not parent_lookup.get(node_id) or parent_lookup[node_id] not in node_map
+        ]
+
+        return [ProvisionHierarchy.model_validate(node) for node in roots]
 
 
 def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDetail]:

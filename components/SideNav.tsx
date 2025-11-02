@@ -20,7 +20,7 @@ const NavNode: React.FC<NavNodeProps> = ({
                                              level,
                                              isSearchActive,
                                          }) => {
-    const embeddedChildren = node.children ?? [];
+    const embeddedChildren = Array.isArray(node.children) ? node.children : [];
 
     const [fetchedChildren, setFetchedChildren] = useState<HierarchyNode[] | null>(null);
     const [isExpanded, setIsExpanded] = useState(false);
