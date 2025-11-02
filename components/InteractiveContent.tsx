@@ -173,7 +173,7 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
         let indentClass = '';
         if (/^\s*\(\d+\)/.test(textContent)) indentClass = 'pl-6'; // (1)
         if (/^\s*\([a-z]\)/.test(textContent)) indentClass = 'pl-12'; // (a)
-        if (/^\s*\([ivx]+\)/.test(textContent)) indentClass = 'pl-18'; // (i)
+        if (/^\s*\([ivx]+\)/.test(textContent)) indentClass = 'pl-[4.5rem]'; // (i)
 
         return <p className={`mb-4 ${indentClass}`}>{processChildren(children)}</p>;
     };
