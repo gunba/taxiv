@@ -29,7 +29,7 @@ dist-ssr
 
 # Project artifacts
 dev/
-ingest/output/*
-/ingest/output
-/ingest/output/intermediate
-/ingest/output/final
+ingest/output
+ingest/output
+ingest/output/intermediate
+ingest/output/final
