@@ -20,12 +20,16 @@ class Config:
 	OUTPUT_INTERMEDIATE_DIR = os.path.join(INGEST_ROOT, "output", "intermediate")
 	OUTPUT_FINAL_DIR = os.path.join(INGEST_ROOT, "output", "final")
 	CACHE_DIR = os.path.join(INGEST_ROOT, "cache")
+	MEDIA_ROOT = os.path.join(INGEST_ROOT, "media")
+	MEDIA_URL_BASE = "/media"
+	MEDIA_ACT_ROOT = os.path.join(MEDIA_ROOT, ACT_ID.lower())
 
 	# Ensure directories exist
 	os.makedirs(INPUT_DATA_DIR, exist_ok=True)
 	os.makedirs(OUTPUT_INTERMEDIATE_DIR, exist_ok=True)
 	os.makedirs(OUTPUT_FINAL_DIR, exist_ok=True)
 	os.makedirs(CACHE_DIR, exist_ok=True)
+	os.makedirs(MEDIA_ACT_ROOT, exist_ok=True)
 
 	# Input file pattern
 	FILE_PATTERN = "C2025C00405VOL{}.docx"
@@ -61,8 +65,9 @@ class Config:
 	# Regex patterns
 	TITLE_PATTERNS = {
 		"Structure": re.compile(r'^(Chapter|Part|Division|Subdivision)\s+([0-9A-Z\-]+)(?:\s*(?:—|-|--)\s*(.*))?$',
-								re.IGNORECASE),
+				re.IGNORECASE),
 		"Section": re.compile(r'^([0-9\-A-Z]+)\s+(.*)$', re.IGNORECASE),
 	}
 
 	FALLBACK_ASTERISK_REGEX = re.compile(r'(?:^|[\s\(])\*(?P<term>[a-zA-Z0-9\s\-\(\)]+?)(?=[\s,.;:)]|$)')
+

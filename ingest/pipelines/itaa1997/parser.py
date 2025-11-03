@@ -1,6 +1,7 @@
 # ingest/pipelines/itaa1997/parser.py
 import os
 import re
+import hashlib
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional, Pattern, List, Tuple, Set
@@ -20,19 +21,6 @@ except ImportError:
 
 # Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
 from .config import Config
-
-# We use tqdm for progress bars during parsing
-try:
-	from tqdm import tqdm
-except ImportError:
-	# Fallback if tqdm is not installed
-	def tqdm(iterable=None, **kwargs):
-		return iterable if iterable is not None else []
-
-
-	tqdm.write = print
-
-# Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
 from ingest.core.utils import iter_block_items, get_indentation
 # Import LLM tools needed for the finalization callback
 # We import these here to ensure they are available when finalize_section is called
@@ -42,6 +30,75 @@ from ingest.core import llm_extraction
 # Import pipeline-specific configuration (using relative import)
 # We import the config values directly rather than the module object for clarity
 config = Config()
+
+# =============================================================================
+# Media Handling Helpers
+# =============================================================================
+
+CURRENT_MEDIA_CONTEXT: Dict[str, Dict[str, str]] = {}
+
+
+def _sanitize_media_segment(value: str) -> str:
+	value = (value or "").strip()
+	sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+	return sanitized or "document"
+
+
+def _initialize_media_context(filepath: str) -> None:
+	global CURRENT_MEDIA_CONTEXT
+	doc_basename = _sanitize_media_segment(os.path.splitext(os.path.basename(filepath))[0])
+	act_segment = _sanitize_media_segment(config.ACT_ID.lower())
+	relative_dir = os.path.join(act_segment, doc_basename)
+	absolute_dir = os.path.join(config.MEDIA_ROOT, relative_dir)
+	os.makedirs(absolute_dir, exist_ok=True)
+	CURRENT_MEDIA_CONTEXT = {
+		"relative_dir": relative_dir,
+		"absolute_dir": absolute_dir,
+		"cache": {},
+	}
+
+
+def _clear_media_context() -> None:
+	global CURRENT_MEDIA_CONTEXT
+	CURRENT_MEDIA_CONTEXT = {}
+
+
+def _build_media_url(relative_path: str) -> str:
+	base = config.MEDIA_URL_BASE.rstrip('/')
+	if not base:
+		base = "/media"
+	if not base.startswith('/'):
+		base = f"/{base}"
+	normalized_path = relative_path.replace(os.sep, '/')
+	if normalized_path:
+		return f"{base}/{normalized_path}"
+	return base
+
+
+def _persist_image_blob(blob: bytes, partname: str, content_type: str) -> Optional[str]:
+	if not CURRENT_MEDIA_CONTEXT:
+		return None
+	cache = CURRENT_MEDIA_CONTEXT.setdefault("cache", {})
+	digest = hashlib.sha1(blob).hexdigest()
+	if digest in cache:
+		return cache[digest]
+	extension = os.path.splitext(partname)[1].lower()
+	if not extension and content_type:
+		subtype = content_type.split('/')[-1].lower()
+		if subtype:
+			extension = f".{subtype}"
+	if not extension:
+		extension = ".bin"
+	filename = f"{digest[:16]}{extension}"
+	relative_path = os.path.join(CURRENT_MEDIA_CONTEXT["relative_dir"], filename)
+	absolute_path = os.path.join(config.MEDIA_ROOT, relative_path)
+	os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+	if not os.path.exists(absolute_path):
+		with open(absolute_path, "wb") as media_file:
+			media_file.write(blob)
+	public_url = _build_media_url(relative_path)
+	cache[digest] = public_url
+	return public_url
 
 # Import docx components
 try:
@@ -253,31 +310,67 @@ def compile_definition_regex():
 # =============================================================================
 
 def get_image_alt_text(paragraph) -> Tuple[str, Set[str]]:
-	alt_texts_md = []
-	all_defined_terms = set()
-	# XML namespaces for locating image descriptions
+	alt_texts_md: List[str] = []
+	all_defined_terms: Set[str] = set()
 	W_URI = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 	WP_URI = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
+	A_URI = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+	R_EMBED = qn('r:embed')
+	R_LINK = qn('r:link')
 	drawing_qname = f'{{{W_URI}}}drawing'
 	docPr_qname = f'{{{WP_URI}}}docPr'
+	blip_qname = f'{{{A_URI}}}blip'
 
-	# Handle potential missing _element attribute if docx import failed partially
 	if not hasattr(paragraph, '_element') or paragraph._element is None:
 		return "", set()
 
+	related_parts = getattr(getattr(paragraph, 'part', None), 'related_parts', {})
+
 	for drawing in paragraph._element.iter(drawing_qname):
+		alt_text = ""
 		for docPr in drawing.iter(docPr_qname):
-			alt_text = docPr.get('descr')
+			alt_text = (docPr.get('descr') or docPr.get('title') or "").strip()
+			if alt_text:
+				break
+
+		for blip in drawing.iter(blip_qname):
+			relationship_id = blip.get(R_EMBED) or blip.get(R_LINK)
+			if not relationship_id:
+				continue
+			image_part = related_parts.get(relationship_id) if related_parts else None
+			if image_part is None:
+				continue
+			blob = getattr(image_part, 'blob', None)
+			if blob is None:
+				continue
+			content_type = getattr(image_part, 'content_type', '')
+			partname = getattr(image_part, 'partname', '')
+			public_url = _persist_image_blob(blob, partname, content_type)
+			alt_for_md = alt_text or "Embedded image"
+
+			if not public_url:
+				if alt_text:
+					text_to_add = f"\n[Image Description: {alt_text}]\n\n"
+				else:
+					continue
+			else:
+				text_to_add = f"\n![{alt_for_md}]({public_url})\n"
+				if alt_text:
+					text_to_add += f"\n[Image Description: {alt_text}]\n\n"
+				else:
+					text_to_add += "\n"
+
+			if text_to_add not in alt_texts_md:
+				alt_texts_md.append(text_to_add)
+
 			if alt_text:
 				terms = identify_defined_terms(alt_text)
 				all_defined_terms.update(terms)
-				# Format as markdown
-				text_to_add = f"\n[Image Description: {alt_text}]\n\n"
-
-				if text_to_add not in alt_texts_md:
-					alt_texts_md.append(text_to_add)
 
 	return "".join(alt_texts_md), all_defined_terms
+
+
+
 
 
 def process_table(table) -> Tuple[str, Set[str]]:
@@ -507,210 +600,215 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 		print(f"Error opening document {filepath}: {str(e)}")
 		return []
 
-	# Setup for hierarchy tracking
-	structure = []
-	hierarchy_stack = [structure]  # Stack starts with the root list
-	current_section = None
+	_initialize_media_context(filepath)
 
-	# Setup for definition tracking
-	in_definitions_section = False
-	current_definition_term = None
-	definition_list_trackers: Dict[str, ListStateTracker] = {}
-	current_list_tracker: Optional[ListStateTracker] = None
-
-	# Progress bar setup
 	try:
-		# Estimate total blocks based on body children
-		total_blocks = len(doc.element.body.getchildren())
-	except Exception:
-		total_blocks = None
-
-	block_iterator = iter_block_items(doc)
-
-	progress_bar_doc = tqdm(
-		block_iterator, total=total_blocks,
-		desc=f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
-		unit="block", leave=False, ncols=100, position=2
-	)
-
-	# Main processing loop
-	for block in progress_bar_doc:
-
-		is_paragraph = isinstance(block, Paragraph)
-		is_table = isinstance(block, Table)
-		style_name = None
-		text = ""
-
-		# Extract basic info from paragraphs
-		if is_paragraph:
-			if block.style and hasattr(block.style, 'name'):
-				style_name = block.style.name
-				if should_ignore_style(style_name):
-					continue
-			# Clean text and normalize whitespace
-			text = block.text.strip().replace('\u00A0', ' ')
-
-		# 1. Handle Headings (Hierarchy Management)
-		if is_paragraph and style_name in config.STYLE_MAP:
-			level = config.STYLE_MAP[style_name]
-			if not text: continue
-
-			# Parse title data (only in Pass 2)
-			title_data = {"name": text}
-			if pass_num == 2:
-				title_data = parse_title(text, level)
-
-			# Initialize new section structure (using sets for accumulation)
-			new_section = {
-				"level": level, "title": text,
-				"type": title_data.get("type"), "id": title_data.get("id"),
-				"name": title_data.get("name"), "ref_id": title_data.get("ref_id"),
-				"content_md": "", "references": set(), "defined_terms_used": set(),
-				"children": []
-			}
-
-			# Manage hierarchy stack: pop until the correct parent level is reached
-			while len(hierarchy_stack) > level:
-				popped_section = hierarchy_stack.pop()
-				# CRITICAL CHANGE: Call finalize_section with executor and futures
+		# Setup for hierarchy tracking
+		structure = []
+		hierarchy_stack = [structure]  # Stack starts with the root list
+		current_section = None
+	
+		# Setup for definition tracking
+		in_definitions_section = False
+		current_definition_term = None
+		definition_list_trackers: Dict[str, ListStateTracker] = {}
+		current_list_tracker: Optional[ListStateTracker] = None
+	
+		# Progress bar setup
+		try:
+			# Estimate total blocks based on body children
+			total_blocks = len(doc.element.body.getchildren())
+		except Exception:
+			total_blocks = None
+	
+		block_iterator = iter_block_items(doc)
+	
+		progress_bar_doc = tqdm(
+			block_iterator, total=total_blocks,
+			desc=f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
+			unit="block", leave=False, ncols=100, position=2
+		)
+	
+		# Main processing loop
+		for block in progress_bar_doc:
+	
+			is_paragraph = isinstance(block, Paragraph)
+			is_table = isinstance(block, Table)
+			style_name = None
+			text = ""
+	
+			# Extract basic info from paragraphs
+			if is_paragraph:
+				if block.style and hasattr(block.style, 'name'):
+					style_name = block.style.name
+					if should_ignore_style(style_name):
+						continue
+				# Clean text and normalize whitespace
+				text = block.text.strip().replace('\u00A0', ' ')
+	
+			# 1. Handle Headings (Hierarchy Management)
+			if is_paragraph and style_name in config.STYLE_MAP:
+				level = config.STYLE_MAP[style_name]
+				if not text: continue
+	
+				# Parse title data (only in Pass 2)
+				title_data = {"name": text}
 				if pass_num == 2:
-					# Generate hierarchy context (list of parent ref_ids)
-					hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
-											isinstance(item, dict) and item.get("ref_id")]
-					# Pass the executor and futures list to the finalizer
-					finalize_section(popped_section, hierarchy_context, executor, futures)
-
-			# Add the new section to the hierarchy
-			if pass_num == 2:
-				parent_container = hierarchy_stack[-1]
-				if isinstance(parent_container, list):
-					parent_container.append(new_section)
-				elif isinstance(parent_container, dict) and "children" in parent_container:
-					parent_container["children"].append(new_section)
-
-				hierarchy_stack.append(new_section)
-				current_section = new_section
-				current_list_tracker = ListStateTracker()
-			else:
-				# In Pass 1, we just need a flag that we are inside a section
-				current_section = True
-
-			# --- Definition section tracking (Pass 1 specific logic) ---
-			# Check if entering or exiting the definitions section (Section 995-1)
-			if level == 5 and (text.startswith("995-1") or text.startswith("995 1")):
-				in_definitions_section = True
-				current_definition_term = None
-				if pass_num == 1:
-					progress_bar_doc.set_description(f"  Extracting Definitions (995-1)...", refresh=True)
-			elif level < 5 and in_definitions_section:
-				# If a higher-level heading appears, we have left the definitions section
-				in_definitions_section = False
-				current_definition_term = None
-				if pass_num == 1:
-					# Reset progress bar description
-					progress_bar_doc.set_description(f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
-														refresh=True)
-
-			continue  # Proceed to the next block after handling a heading
-
-		# 2. Handle Content
-		if current_section:
-
-			# --- Definition Extraction Logic (Pass 1) ---
-			if pass_num == 1 and in_definitions_section:
-				new_term = None
-				if is_paragraph:
-					new_term = identify_definition_start(block)
-
-				if new_term:
-					# Start a new definition
-					current_definition_term = new_term
-					if current_definition_term not in DEFINITIONS_995_1:
-						DEFINITIONS_995_1[current_definition_term] = {
-							"content_md": "", "references": set(), "defined_terms_used": set()
-						}
-					definition_tracker = definition_list_trackers.get(current_definition_term)
-					if definition_tracker is None:
-						definition_tracker = ListStateTracker()
-						definition_list_trackers[current_definition_term] = definition_tracker
-					existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
-					# Process the starting line of the definition
-					content, terms = clean_definition_start(
-						block, new_term, definition_tracker, existing_content
-					)
-					DEFINITIONS_995_1[current_definition_term]["content_md"] += content
-					DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
-
-				elif current_definition_term:
-					# Continue processing subsequent blocks of the current definition
-					definition_tracker = definition_list_trackers.setdefault(
-						current_definition_term, ListStateTracker()
-					)
-					existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
-					content, terms = process_definition_content(
-						block, definition_tracker, existing_content
-					)
-					if current_definition_term in DEFINITIONS_995_1:
+					title_data = parse_title(text, level)
+	
+				# Initialize new section structure (using sets for accumulation)
+				new_section = {
+					"level": level, "title": text,
+					"type": title_data.get("type"), "id": title_data.get("id"),
+					"name": title_data.get("name"), "ref_id": title_data.get("ref_id"),
+					"content_md": "", "references": set(), "defined_terms_used": set(),
+					"children": []
+				}
+	
+				# Manage hierarchy stack: pop until the correct parent level is reached
+				while len(hierarchy_stack) > level:
+					popped_section = hierarchy_stack.pop()
+					# CRITICAL CHANGE: Call finalize_section with executor and futures
+					if pass_num == 2:
+						# Generate hierarchy context (list of parent ref_ids)
+						hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
+												isinstance(item, dict) and item.get("ref_id")]
+						# Pass the executor and futures list to the finalizer
+						finalize_section(popped_section, hierarchy_context, executor, futures)
+	
+				# Add the new section to the hierarchy
+				if pass_num == 2:
+					parent_container = hierarchy_stack[-1]
+					if isinstance(parent_container, list):
+						parent_container.append(new_section)
+					elif isinstance(parent_container, dict) and "children" in parent_container:
+						parent_container["children"].append(new_section)
+	
+					hierarchy_stack.append(new_section)
+					current_section = new_section
+					current_list_tracker = ListStateTracker()
+				else:
+					# In Pass 1, we just need a flag that we are inside a section
+					current_section = True
+	
+				# --- Definition section tracking (Pass 1 specific logic) ---
+				# Check if entering or exiting the definitions section (Section 995-1)
+				if level == 5 and (text.startswith("995-1") or text.startswith("995 1")):
+					in_definitions_section = True
+					current_definition_term = None
+					if pass_num == 1:
+						progress_bar_doc.set_description(f"  Extracting Definitions (995-1)...", refresh=True)
+				elif level < 5 and in_definitions_section:
+					# If a higher-level heading appears, we have left the definitions section
+					in_definitions_section = False
+					current_definition_term = None
+					if pass_num == 1:
+						# Reset progress bar description
+						progress_bar_doc.set_description(f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
+															refresh=True)
+	
+				continue  # Proceed to the next block after handling a heading
+	
+			# 2. Handle Content
+			if current_section:
+	
+				# --- Definition Extraction Logic (Pass 1) ---
+				if pass_num == 1 and in_definitions_section:
+					new_term = None
+					if is_paragraph:
+						new_term = identify_definition_start(block)
+	
+					if new_term:
+						# Start a new definition
+						current_definition_term = new_term
+						if current_definition_term not in DEFINITIONS_995_1:
+							DEFINITIONS_995_1[current_definition_term] = {
+								"content_md": "", "references": set(), "defined_terms_used": set()
+							}
+						definition_tracker = definition_list_trackers.get(current_definition_term)
+						if definition_tracker is None:
+							definition_tracker = ListStateTracker()
+							definition_list_trackers[current_definition_term] = definition_tracker
+						existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
+						# Process the starting line of the definition
+						content, terms = clean_definition_start(
+							block, new_term, definition_tracker, existing_content
+						)
 						DEFINITIONS_995_1[current_definition_term]["content_md"] += content
 						DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
-
-		# --- Standard Content Processing (Pass 2) ---
+	
+					elif current_definition_term:
+						# Continue processing subsequent blocks of the current definition
+						definition_tracker = definition_list_trackers.setdefault(
+							current_definition_term, ListStateTracker()
+						)
+						existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
+						content, terms = process_definition_content(
+							block, definition_tracker, existing_content
+						)
+						if current_definition_term in DEFINITIONS_995_1:
+							DEFINITIONS_995_1[current_definition_term]["content_md"] += content
+							DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
+	
+			# --- Standard Content Processing (Pass 2) ---
+			if pass_num == 2:
+				if is_paragraph:
+					if current_list_tracker is None:
+						current_list_tracker = ListStateTracker()
+					alt_text_md, alt_terms = get_image_alt_text(block)
+					if alt_text_md:
+						current_section["content_md"] += current_list_tracker.close_lists(
+							bool(current_section["content_md"])
+						)
+						current_section["content_md"] += alt_text_md
+						current_section["defined_terms_used"].update(alt_terms)
+	
+					if text:
+						indentation = get_indentation(block)
+						# Identify terms (using precise regex in Pass 2)
+						terms = identify_defined_terms(text)
+						current_section["defined_terms_used"].update(terms)
+	
+						processed_text = text
+	
+						# Apply formatting based on known styles (Simplified logic matching original script intent)
+						if style_name == 'SubsectionHead':
+							processed_text = f"*{processed_text}*"
+						elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
+							processed_text = f"_{processed_text}_"
+	
+						# Append content to the current section with list handling
+						current_section["content_md"] += format_paragraph_markdown(
+							block,
+							processed_text,
+							current_list_tracker,
+							bool(current_section["content_md"]),
+							indentation
+						)
+	
+				elif is_table:
+					# Handle tables
+					if current_list_tracker is not None:
+						current_section["content_md"] += current_list_tracker.close_lists(
+							bool(current_section["content_md"])
+						)
+					table_md, table_terms = process_table(block)
+					current_section["content_md"] += table_md
+					current_section["defined_terms_used"].update(table_terms)
+	
+	
+		# Close the progress bar for this document
+		progress_bar_doc.close()
+	
+		# Finalize remaining sections on the stack after the document ends
 		if pass_num == 2:
-			if is_paragraph:
-				if current_list_tracker is None:
-					current_list_tracker = ListStateTracker()
-				alt_text_md, alt_terms = get_image_alt_text(block)
-				if alt_text_md:
-					current_section["content_md"] += current_list_tracker.close_lists(
-						bool(current_section["content_md"])
-					)
-					current_section["content_md"] += alt_text_md
-					current_section["defined_terms_used"].update(alt_terms)
-
-				if text:
-					indentation = get_indentation(block)
-					# Identify terms (using precise regex in Pass 2)
-					terms = identify_defined_terms(text)
-					current_section["defined_terms_used"].update(terms)
-
-					processed_text = text
-
-					# Apply formatting based on known styles (Simplified logic matching original script intent)
-					if style_name == 'SubsectionHead':
-						processed_text = f"*{processed_text}*"
-					elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
-						processed_text = f"_{processed_text}_"
-
-					# Append content to the current section with list handling
-					current_section["content_md"] += format_paragraph_markdown(
-						block,
-						processed_text,
-						current_list_tracker,
-						bool(current_section["content_md"]),
-						indentation
-					)
-
-			elif is_table:
-				# Handle tables
-				if current_list_tracker is not None:
-					current_section["content_md"] += current_list_tracker.close_lists(
-						bool(current_section["content_md"])
-					)
-				table_md, table_terms = process_table(block)
-				current_section["content_md"] += table_md
-				current_section["defined_terms_used"].update(table_terms)
-
-
-	# Close the progress bar for this document
-	progress_bar_doc.close()
-
-	# Finalize remaining sections on the stack after the document ends
-	if pass_num == 2:
-		while len(hierarchy_stack) > 1:
-			popped_section = hierarchy_stack.pop()
-			hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
-									isinstance(item, dict) and item.get("ref_id")]
-			# Pass the executor and futures list to the finalizer
-			finalize_section(popped_section, hierarchy_context, executor, futures)
-
-	return structure
+			while len(hierarchy_stack) > 1:
+				popped_section = hierarchy_stack.pop()
+				hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
+										isinstance(item, dict) and item.get("ref_id")]
+				# Pass the executor and futures list to the finalizer
+				finalize_section(popped_section, hierarchy_context, executor, futures)
+	
+		return structure
+	finally:
+		_clear_media_context()

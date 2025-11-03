@@ -1,8 +1,10 @@
 # backend/main.py
 import logging
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Path
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,13 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 app = FastAPI(title="Taxiv API", version="0.1.0")
+media_url = (settings.MEDIA_URL_BASE.rstrip('/') if settings.MEDIA_URL_BASE else '')
+if not media_url:
+	media_url = '/media'
+if not media_url.startswith('/'):
+	media_url = f'/{media_url}'
+Path(settings.MEDIA_ROOT).mkdir(parents=True, exist_ok=True)
+app.mount(media_url, StaticFiles(directory=settings.MEDIA_ROOT), name='media')
 
 # CORS Middleware
 origins = [
@@ -106,10 +115,8 @@ def get_provision_by_ref_id(
 
 @app.get("/api/provisions/breadcrumbs/{internal_id}", response_model=List[schemas.BreadcrumbItem])
 def get_breadcrumbs(
-		internal_id: str = Path(..., description="The internal ID of the provision."),
-		db: Session = Depends(get_db)
+	internal_id: str = Path(..., description="The internal ID of the provision."),
+	db: Session = Depends(get_db)
 ):
 	"""Get the breadcrumbs for a given provision."""
 	return crud.get_breadcrumbs(db, internal_id)
-
-	return crud.get_hierarchy(db, act_id, parent_id)
