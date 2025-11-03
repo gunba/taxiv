@@ -1,3 +1,4 @@
+from pathlib import Path
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
@@ -11,6 +12,8 @@ class Settings(BaseSettings):
 	DB_PASSWORD: str
 	DB_NAME: str
 	google_cloud_api_key: str | None = None
+	MEDIA_ROOT: str = str((Path(__file__).resolve().parent.parent / "ingest" / "media").resolve())
+	MEDIA_URL_BASE: str = "/media"
 
 	ENVIRONMENT: str = "development"
 
