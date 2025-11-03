@@ -33,7 +33,7 @@ const TAILWIND_INDENT_VALUES = new Set([
     96,
 ]);
 
-const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const computePaddingFromSpaces = (spaces: number): Pick<IndentationResult, 'className' | 'style'> => {
     if (spaces <= 0) {
@@ -93,10 +93,10 @@ interface InteractiveContentProps {
 const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClick, onReferenceByRefIdClick}) => {
 
     // Identify clickable elements based on API data
-    const clickables = useMemo(() => {
-        type ClickableItem =
-            | { text: string; handler: () => void; type: 'ref' | 'term' }
-            | { text: string; handler: () => void; type: 'external'; href: string };
+    const {clickables, clickablesRegex} = useMemo(() => {
+        type ClickableBase = { text: string; key: string; handler: () => void; type: 'ref' | 'term' };
+        type ClickableExternal = { text: string; key: string; handler: () => void; type: 'external'; href: string };
+        type ClickableItem = ClickableBase | ClickableExternal;
 
         const items: ClickableItem[] = [];
 
@@ -117,6 +117,7 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
 
                     items.push({
                         text: ref.snippet,
+                        key: ref.snippet.toLowerCase(),
                         handler: () => {
                             if (typeof window !== 'undefined') {
                                 window.open(href, '_blank', 'noopener,noreferrer');
@@ -130,6 +131,7 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
 
                 items.push({
                     text: ref.snippet,
+                    key: ref.snippet.toLowerCase(),
                     handler: () => onReferenceByRefIdClick(ref.target_ref_id),
                     type: 'ref',
                 });
@@ -144,6 +146,7 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
                 // Add the plain text version
                 items.push({
                     text: term.term_text,
+                    key: term.term_text.toLowerCase(),
                     handler: handler,
                     type: 'term',
                 });
@@ -153,6 +156,7 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
                 if (asteriskedText !== term.term_text) {
                     items.push({
                         text: asteriskedText,
+                        key: asteriskedText.toLowerCase(),
                         handler: handler,
                         type: 'term',
                     });
@@ -162,25 +166,27 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
 
         // Sort by length descending (crucial for prioritizing longer matches)
         items.sort((a, b) => b.text.length - a.text.length);
-        return items;
+        const uniquePatterns = Array.from(new Set(items.map(item => item.text)))
+            .map(text => `(?<!\\w)${escapeForRegex(text)}(?!\\w)`);
+
+        const pattern = uniquePatterns.join('|');
+        const regex = pattern ? new RegExp(`(${pattern})`, 'gi') : null;
+
+        return {clickables: items, clickablesRegex: regex};
     }, [node, onTermClick, onReferenceByRefIdClick]);
 
     // Function to render text with interactive elements
     const renderInteractiveText = (text: string) => {
-        if (!text || clickables.length === 0) {
+        if (!text || clickables.length === 0 || !clickablesRegex) {
             return text;
         }
 
-        // Create the regex pattern safely
-        const pattern = clickables.map(c => c.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-        if (!pattern) return text;
-
-        const regex = new RegExp(`(${pattern})`, 'g');
-        const parts = text.split(regex);
+        const parts = text.split(clickablesRegex);
 
         return parts.map((part, i) => {
             if (!part) return null;
-            const clickable = clickables.find(c => c.text === part);
+            const lowerPart = part.toLowerCase();
+            const clickable = clickables.find(c => c.key === lowerPart);
             if (clickable) {
                 const baseClass =
                     'inline font-medium transition-colors hover:underline focus-visible:underline focus-visible:outline-none';
