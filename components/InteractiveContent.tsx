@@ -4,6 +4,84 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {TaxDataObject} from '../types';
 
+type IndentationResult = {
+    children: React.ReactNode;
+    className: string;
+    style?: React.CSSProperties;
+    consumed: boolean;
+};
+
+const TAILWIND_INDENT_VALUES = new Set([
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40,
+    44,
+    48,
+    52,
+    56,
+    60,
+    64,
+    72,
+    80,
+    96,
+]);
+
+const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+
+const computePaddingFromSpaces = (spaces: number): Pick<IndentationResult, 'className' | 'style'> => {
+    if (spaces <= 0) {
+        return {className: '', style: undefined};
+    }
+
+    const usesTailwindClass = spaces % 4 === 0 && TAILWIND_INDENT_VALUES.has(spaces);
+    if (usesTailwindClass) {
+        return {className: `pl-${spaces}`, style: undefined};
+    }
+
+    const remValue = Number((spaces * 0.25).toFixed(4));
+    return {className: '', style: {paddingLeft: `${remValue}rem`}};
+};
+
+const normalizeIndentation = (childNodes: React.ReactNode): IndentationResult => {
+    const arrayChildren = Children.toArray(childNodes);
+    const firstTextIndex = arrayChildren.findIndex(node => typeof node === 'string');
+    if (firstTextIndex === -1) {
+        return {children: childNodes, className: '', style: undefined, consumed: false};
+    }
+
+    const firstText = arrayChildren[firstTextIndex] as string;
+    const indentMatch = firstText.match(/^(?:\n*)([ \t]+)/);
+    if (!indentMatch) {
+        return {children: childNodes, className: '', style: undefined, consumed: false};
+    }
+
+    const rawIndent = indentMatch[1];
+    const spaces = rawIndent.replace(/\t/g, '    ').length;
+    if (spaces === 0) {
+        return {children: childNodes, className: '', style: undefined, consumed: false};
+    }
+
+    const indentPattern = escapeForRegex(rawIndent);
+    const trimmedText = firstText.replace(new RegExp(`(^|\n)${indentPattern}`, 'g'), (_match, prefix) => prefix);
+    const updatedChildren = [...arrayChildren];
+    updatedChildren[firstTextIndex] = trimmedText;
+
+    const padding = computePaddingFromSpaces(spaces);
+    return {
+        children: updatedChildren,
+        className: padding.className,
+        style: padding.style,
+        consumed: true,
+    };
+};
+
 interface InteractiveContentProps {
     node: TaxDataObject;
     // Handler for defined terms (uses internal ID)
@@ -168,18 +246,40 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
     };
 
     const CustomParagraph = ({children}: { children: React.ReactNode }) => {
-        // Indentation logic (restored from original)
-        const textContent = Children.toArray(children).join('');
-        let indentClass = '';
-        if (/^\s*\(\d+\)/.test(textContent)) indentClass = 'pl-6'; // (1)
-        if (/^\s*\([a-z]\)/.test(textContent)) indentClass = 'pl-12'; // (a)
-        if (/^\s*\([ivx]+\)/.test(textContent)) indentClass = 'pl-[4.5rem]'; // (i)
+        const indentation = normalizeIndentation(children);
+        const processedChildren = indentation.consumed ? indentation.children : children;
+        const textContent = Children.toArray(processedChildren).join('');
 
-        return <p className={`mb-2 ${indentClass}`}>{processChildren(children)}</p>;
+        let markerIndentClass = '';
+        if (!indentation.consumed) {
+            if (/^\s*\(\d+\)/.test(textContent)) markerIndentClass = 'pl-6'; // (1)
+            if (/^\s*\([a-z]\)/.test(textContent)) markerIndentClass = 'pl-12'; // (a)
+            if (/^\s*\([ivx]+\)/.test(textContent)) markerIndentClass = 'pl-[4.5rem]'; // (i)
+        }
+
+        const classNames = ['mb-2'];
+        if (indentation.className) classNames.push(indentation.className);
+        if (markerIndentClass) classNames.push(markerIndentClass);
+
+        return (
+            <p className={classNames.join(' ')} style={indentation.style}>
+                {processChildren(processedChildren)}
+            </p>
+        );
     };
 
     // Apply processing to list items and table cells as well
-    const CustomListItem = ({children}: { children: React.ReactNode }) => <li>{processChildren(children)}</li>;
+    const CustomListItem = ({children}: { children: React.ReactNode }) => {
+        const indentation = normalizeIndentation(children);
+        const processedChildren = indentation.consumed ? indentation.children : children;
+        const className = indentation.className ? indentation.className : undefined;
+
+        return (
+            <li className={className} style={indentation.style}>
+                {processChildren(processedChildren)}
+            </li>
+        );
+    };
     const CustomTableCell = ({children, ...props}: any) => <td
         className="border border-gray-600 px-4 py-2" {...props}>{processChildren(children)}</td>;
 
