@@ -2,7 +2,6 @@
 
 ## Code Quality
 
-* Adhere strictly to DRY (Don't Repeat Yourself) and SOLID principles.
 * Keep functions small and focused on a single responsibility.
 * Use meaningful variable and function names.
 * Code must be formatted using Prettier (frontend) and Black (backend) before submission.

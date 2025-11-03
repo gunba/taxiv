@@ -9,12 +9,10 @@ You are an expert full-stack developer (React/TypeScript Frontend, Python/FastAP
 However, your memory is volatile. You must rely on the externalized state management system defined here.
 
 1. **Plan First:** No implementation code shall be written without an approved plan.
-2. **Externalize State:** Maintain the current task status in the `dev/active/[task-name]/` directory (Note: AI Agents
-   should create `dev/active/` directories if they don't exist).
+2. **Externalize State:** Maintain the current task status in the `dev/[task-name]` directory (create this directory if it does not exist).
 3. **Adhere to Standards:** Follow the standards defined in the `standards` directory.
 4. **Iterate and Review:** Work in small steps and utilize the Quality Control agents frequently.
-5. **Use the Infrastructure:** All development, testing, and ingestion must utilize the "docker compose" (not "
-   docker-compose") environment to ensure consistency.
+
 
 ## 2. The Dev Docs Workflow (Externalized State)
 
@@ -45,9 +43,7 @@ Once the plan is approved:
 1. **Load Context:** Before starting work, read all three Dev Docs files.
 2. **Execute Step:** Implement ONE or TWO tasks from the checklist at a time.
 3. **Validate:** Run necessary builds/linters/tests. Fix errors immediately.
-4. **Review (Optional but Recommended):** Activate the Code Reviewer Agent to check the changes against guidelines and
-   the plan.
-5. **Update State:**
+4. **Update State:**
     * Update `[task-name]-tasks.md` by marking completed items.
     * Update `[task-name]-context.md` with key decisions, challenges, or newly relevant code snippets.
 
@@ -106,5 +102,3 @@ You must consult the relevant standards ("standards" folder) before starting a t
 - If the user asks you to work on the frontend, you MUST review `frontend.md`.
 - If working on the backend, review `backend.md`.
 - Always review `best_practices.md`.
-
-This project uses `docker compose` (with a space) instead of the older `docker-compose` (with a hyphen).

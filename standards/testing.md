@@ -10,7 +10,7 @@ All code must be testable and accompanied by relevant tests.
 
 ## Frontend Testing
 
-* **Framework:** Jest (or Vitest)
+* **Framework:** Vitest
 * **Library:** React Testing Library (RTL)
 * **Priorities:**
     1. Test user interactions and component behavior (RTL). Do not test implementation details.
