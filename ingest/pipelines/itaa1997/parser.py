@@ -1,6 +1,7 @@
 # ingest/pipelines/itaa1997/parser.py
 import os
 import re
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional, Pattern, List, Tuple, Set
 
@@ -45,6 +46,7 @@ config = Config()
 # Import docx components
 try:
 	from docx.document import Document as _Document
+	from docx.oxml.ns import qn
 	from docx.oxml.table import CT_Tbl
 	from docx.oxml.text.paragraph import CT_P
 	from docx.table import _Cell, Table
@@ -57,6 +59,8 @@ except ImportError:
 	_Cell = object;
 	CT_P = object;
 	CT_Tbl = object
+	def qn(value):
+		return value
 
 # =============================================================================
 # Global State for Definitions (Managed during the parsing process)
@@ -67,6 +71,130 @@ DEFINITIONS_995_1: Dict[str, Dict] = {}
 DEFINITION_MARKER_REGEX: Optional[Pattern] = None
 
 
+# =============================================================================
+# List Handling Helpers
+# =============================================================================
+
+W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+
+
+@dataclass
+class ListInfo:
+	num_id: str
+	level: int
+	ordered: bool
+
+
+class ListStateTracker:
+	def __init__(self):
+		self._stack: List[ListInfo] = []
+
+	def start_item(self, info: ListInfo, has_prior_content: bool) -> Tuple[str, str]:
+		leading = ""
+		changed = False
+		popped_same_list = False
+		was_empty = not self._stack
+		while self._stack and (
+			self._stack[-1].level > info.level
+			or (self._stack[-1].level == info.level and self._stack[-1].num_id != info.num_id)
+		):
+			popped = self._stack.pop()
+			changed = True
+			if popped.num_id == info.num_id and popped.ordered == info.ordered:
+				popped_same_list = True
+		if not self._stack or self._stack[-1].level < info.level:
+			self._stack.append(ListInfo(info.num_id, info.level, info.ordered))
+			changed = True
+		else:
+			top = self._stack[-1]
+			if top.num_id != info.num_id or top.ordered != info.ordered:
+				self._stack[-1] = ListInfo(info.num_id, info.level, info.ordered)
+				changed = True
+		if (
+			changed
+			and has_prior_content
+			and len(self._stack) == 1
+			and not popped_same_list
+			and not was_empty
+		):
+			leading = "\n"
+		prefix = "    " * info.level + ("1. " if info.ordered else "- ")
+		return leading, prefix
+
+	def close_lists(self, has_prior_content: bool) -> str:
+		if self._stack:
+			self._stack.clear()
+			return "\n" if has_prior_content else ""
+		return ""
+
+
+
+def _resolve_numbering_format(paragraph, num_id: str, level: int) -> Optional[str]:
+	numbering_part = getattr(paragraph.part, 'numbering_part', None)
+	if numbering_part is None:
+		return None
+	numbering_element = getattr(numbering_part, 'element', None)
+	if numbering_element is None:
+		return None
+	try:
+		abstract_refs = numbering_element.xpath(
+			f"./w:num[@w:numId='{num_id}']/w:abstractNumId",
+			namespaces={'w': W_NS}
+		)
+		if not abstract_refs:
+			return None
+		abstract_num_id = abstract_refs[0].get(f'{{{W_NS}}}val')
+		if abstract_num_id is None:
+			return None
+		lvl_nodes = numbering_element.xpath(
+			f"./w:abstractNum[@w:abstractNumId='{abstract_num_id}']/w:lvl[@w:ilvl='{level}']/w:numFmt",
+			namespaces={'w': W_NS}
+		)
+		if not lvl_nodes:
+			return None
+		return lvl_nodes[0].get(f'{{{W_NS}}}val')
+	except Exception:
+		return None
+
+
+def _is_ordered_list(paragraph, num_id: str, level: int) -> bool:
+	num_format = _resolve_numbering_format(paragraph, num_id, level)
+	if not num_format:
+		return True
+	num_format = str(num_format).lower()
+	return num_format not in {'bullet', 'none'}
+
+
+def get_paragraph_list_info(paragraph) -> Optional[ListInfo]:
+	if not hasattr(paragraph, '_p') or paragraph._p is None:
+		return None
+	p_props = getattr(paragraph._p, 'pPr', None)
+	if p_props is None:
+		return None
+	num_pr = getattr(p_props, 'numPr', None)
+	if num_pr is None:
+		return None
+	try:
+		num_id = getattr(num_pr, 'numId', None)
+		ilvl = getattr(num_pr, 'ilvl', None)
+		num_val = num_id.val if num_id is not None else None
+		level_val = int(ilvl.val) if ilvl is not None and ilvl.val is not None else 0
+	except AttributeError:
+		return None
+	if num_val is None:
+		return None
+	ordered = _is_ordered_list(paragraph, str(num_val), level_val)
+	return ListInfo(str(num_val), level_val, ordered)
+
+
+def format_paragraph_markdown(paragraph, text: str, list_tracker: ListStateTracker,
+		has_prior_content: bool, indentation: str) -> str:
+	list_info = get_paragraph_list_info(paragraph)
+	if list_info:
+		leading, prefix = list_tracker.start_item(list_info, has_prior_content)
+		return f"{leading}{prefix}{text}\n"
+	leading = list_tracker.close_lists(has_prior_content)
+	return f"{leading}{indentation}{text}\n\n"
 # =============================================================================
 # Parsing Helper Functions (Specific to ITAA1997 structure/formatting)
 # =============================================================================
@@ -217,38 +345,51 @@ def identify_definition_start(paragraph):
 	return term.strip() if term.strip() else None
 
 
-def process_definition_content(block) -> Tuple[str, Set[str]]:
+def process_definition_content(block, list_tracker: Optional[ListStateTracker] = None,
+		existing_content: str = "") -> Tuple[str, Set[str]]:
 	content_md = ""
 	defined_terms = set()
+	tracker = list_tracker or ListStateTracker()
+	prior_content = bool(existing_content)
 
 	if isinstance(block, Paragraph):
 		text = block.text.strip().replace('\u00A0', ' ')
 
 		img_md, img_terms = get_image_alt_text(block)
-		content_md += img_md
-		defined_terms.update(img_terms)
+		if img_md:
+			defined_terms.update(img_terms)
+			content_md += tracker.close_lists(prior_content)
+			content_md += img_md
+			prior_content = True
 
 		if text:
 			indentation = get_indentation(block)
 			terms = identify_defined_terms(text)
 			defined_terms.update(terms)
-			content_md += f"{indentation}{text}\n\n"
+			content_md += format_paragraph_markdown(
+				block, text, tracker, prior_content, indentation
+			)
 
 		return content_md, defined_terms
 
 	elif isinstance(block, Table):
-		return process_table(block)
+		content_md += tracker.close_lists(prior_content)
+		table_md, table_terms = process_table(block)
+		content_md += table_md
+		defined_terms.update(table_terms)
+		return content_md, defined_terms
 
 	return "", set()
 
 
-def clean_definition_start(paragraph, term) -> Tuple[str, Set[str]]:
+def clean_definition_start(paragraph, term, list_tracker: Optional[ListStateTracker] = None,
+		existing_content: str = "") -> Tuple[str, Set[str]]:
 	text = paragraph.text.strip().replace('\u00A0', ' ')
 	try:
 		pattern = re.compile(r'^' + re.escape(term), re.IGNORECASE)
 		text = pattern.sub('', text, count=1).strip()
 	except re.error:
-		return process_definition_content(paragraph)
+		return process_definition_content(paragraph, list_tracker, existing_content)
 
 	if text.startswith((':', '—', '-')):
 		text = text[1:].strip()
@@ -256,13 +397,25 @@ def clean_definition_start(paragraph, term) -> Tuple[str, Set[str]]:
 	if text.lower().startswith('means:'):
 		text = text[len('means:'):].strip()
 
-	content_md, defined_terms = get_image_alt_text(paragraph)
+	tracker = list_tracker or ListStateTracker()
+	prior_content = bool(existing_content)
+	content_md = ""
+	defined_terms = set()
+
+	img_md, img_terms = get_image_alt_text(paragraph)
+	if img_md:
+		content_md += tracker.close_lists(prior_content)
+		content_md += img_md
+		defined_terms.update(img_terms)
+		prior_content = True
 
 	if text:
 		indentation = get_indentation(paragraph)
 		terms = identify_defined_terms(text)
 		defined_terms.update(terms)
-		content_md += f"{indentation}{text}\n\n"
+		content_md += format_paragraph_markdown(
+			paragraph, text, tracker, prior_content, indentation
+		)
 
 	return content_md, defined_terms
 
@@ -317,7 +470,7 @@ def parse_title(title, level):
 # =============================================================================
 
 def finalize_section(section: Dict, hierarchy_context: List[str], executor: Optional[ThreadPoolExecutor] = None,
-					 futures: Optional[List] = None):
+						futures: Optional[List] = None):
 	"""
 	Processes the aggregated content of a section. Submits LLM processing to the thread pool.
 	(This function is called by process_document when a section is complete)
@@ -343,7 +496,7 @@ def finalize_section(section: Dict, hierarchy_context: List[str], executor: Opti
 # =============================================================================
 
 def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor] = None,
-					 futures: Optional[List] = None):
+						futures: Optional[List] = None):
 	"""
 	Processes a single .docx file.
 	(Adapted signature to accept executor and futures for concurrent processing)
@@ -362,6 +515,8 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 	# Setup for definition tracking
 	in_definitions_section = False
 	current_definition_term = None
+	definition_list_trackers: Dict[str, ListStateTracker] = {}
+	current_list_tracker: Optional[ListStateTracker] = None
 
 	# Progress bar setup
 	try:
@@ -421,7 +576,7 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 				if pass_num == 2:
 					# Generate hierarchy context (list of parent ref_ids)
 					hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
-										 isinstance(item, dict) and item.get("ref_id")]
+											isinstance(item, dict) and item.get("ref_id")]
 					# Pass the executor and futures list to the finalizer
 					finalize_section(popped_section, hierarchy_context, executor, futures)
 
@@ -435,6 +590,7 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 
 				hierarchy_stack.append(new_section)
 				current_section = new_section
+				current_list_tracker = ListStateTracker()
 			else:
 				# In Pass 1, we just need a flag that we are inside a section
 				current_section = True
@@ -453,7 +609,7 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 				if pass_num == 1:
 					# Reset progress bar description
 					progress_bar_doc.set_description(f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
-													 refresh=True)
+														refresh=True)
 
 			continue  # Proceed to the next block after handling a heading
 
@@ -473,48 +629,77 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 						DEFINITIONS_995_1[current_definition_term] = {
 							"content_md": "", "references": set(), "defined_terms_used": set()
 						}
+					definition_tracker = definition_list_trackers.get(current_definition_term)
+					if definition_tracker is None:
+						definition_tracker = ListStateTracker()
+						definition_list_trackers[current_definition_term] = definition_tracker
+					existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
 					# Process the starting line of the definition
-					content, terms = clean_definition_start(block, new_term)
+					content, terms = clean_definition_start(
+						block, new_term, definition_tracker, existing_content
+					)
 					DEFINITIONS_995_1[current_definition_term]["content_md"] += content
 					DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
 
 				elif current_definition_term:
 					# Continue processing subsequent blocks of the current definition
-					content, terms = process_definition_content(block)
+					definition_tracker = definition_list_trackers.setdefault(
+						current_definition_term, ListStateTracker()
+					)
+					existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
+					content, terms = process_definition_content(
+						block, definition_tracker, existing_content
+					)
 					if current_definition_term in DEFINITIONS_995_1:
 						DEFINITIONS_995_1[current_definition_term]["content_md"] += content
 						DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
 
-			# --- Standard Content Processing (Pass 2) ---
-			if pass_num == 2:
-				if is_paragraph:
-					alt_text_md, alt_terms = get_image_alt_text(block)
-					if alt_text_md:
-						current_section["content_md"] += alt_text_md
-						current_section["defined_terms_used"].update(alt_terms)
+		# --- Standard Content Processing (Pass 2) ---
+		if pass_num == 2:
+			if is_paragraph:
+				if current_list_tracker is None:
+					current_list_tracker = ListStateTracker()
+				alt_text_md, alt_terms = get_image_alt_text(block)
+				if alt_text_md:
+					current_section["content_md"] += current_list_tracker.close_lists(
+						bool(current_section["content_md"])
+					)
+					current_section["content_md"] += alt_text_md
+					current_section["defined_terms_used"].update(alt_terms)
 
-					if text:
-						indentation = get_indentation(block)
-						# Identify terms (using precise regex in Pass 2)
-						terms = identify_defined_terms(text)
-						current_section["defined_terms_used"].update(terms)
+				if text:
+					indentation = get_indentation(block)
+					# Identify terms (using precise regex in Pass 2)
+					terms = identify_defined_terms(text)
+					current_section["defined_terms_used"].update(terms)
 
-						processed_text = text
+					processed_text = text
 
-						# Apply formatting based on known styles (Simplified logic matching original script intent)
-						if style_name == 'SubsectionHead':
-							processed_text = f"*{processed_text}*"
-						elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
-							processed_text = f"_{processed_text}_"
+					# Apply formatting based on known styles (Simplified logic matching original script intent)
+					if style_name == 'SubsectionHead':
+						processed_text = f"*{processed_text}*"
+					elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
+						processed_text = f"_{processed_text}_"
 
-						# Append content to the current section
-						current_section["content_md"] += f"{indentation}{processed_text}\n\n"
+					# Append content to the current section with list handling
+					current_section["content_md"] += format_paragraph_markdown(
+						block,
+						processed_text,
+						current_list_tracker,
+						bool(current_section["content_md"]),
+						indentation
+					)
 
-				elif is_table:
-					# Handle tables
-					table_md, table_terms = process_table(block)
-					current_section["content_md"] += table_md
-					current_section["defined_terms_used"].update(table_terms)
+			elif is_table:
+				# Handle tables
+				if current_list_tracker is not None:
+					current_section["content_md"] += current_list_tracker.close_lists(
+						bool(current_section["content_md"])
+					)
+				table_md, table_terms = process_table(block)
+				current_section["content_md"] += table_md
+				current_section["defined_terms_used"].update(table_terms)
+
 
 	# Close the progress bar for this document
 	progress_bar_doc.close()
@@ -524,7 +709,7 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 		while len(hierarchy_stack) > 1:
 			popped_section = hierarchy_stack.pop()
 			hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
-								 isinstance(item, dict) and item.get("ref_id")]
+									isinstance(item, dict) and item.get("ref_id")]
 			# Pass the executor and futures list to the finalizer
 			finalize_section(popped_section, hierarchy_context, executor, futures)
 
