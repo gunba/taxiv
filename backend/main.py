@@ -1,9 +1,9 @@
 # backend/main.py
 import logging
-from pathlib import Path
+from pathlib import Path as PathLib
 from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Path
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Path as FastAPIPath
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -26,7 +26,7 @@ if not media_url:
 	media_url = '/media'
 if not media_url.startswith('/'):
 	media_url = f'/{media_url}'
-Path(settings.MEDIA_ROOT).mkdir(parents=True, exist_ok=True)
+PathLib(settings.MEDIA_ROOT).mkdir(parents=True, exist_ok=True)
 app.mount(media_url, StaticFiles(directory=settings.MEDIA_ROOT), name='media')
 
 # CORS Middleware
@@ -81,7 +81,7 @@ def get_provision_detail(internal_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/provisions/hierarchy/{act_id}", response_model=List[schemas.ProvisionHierarchy])
 def get_hierarchy(
-		act_id: str = Path(..., description="The ID of the Act (e.g., ITAA1997)"),
+                act_id: str = FastAPIPath(..., description="The ID of the Act (e.g., ITAA1997)"),
 		parent_id: Optional[str] = Query(None,
 										 description="The internal_id of the parent provision. If None, returns top-level elements."),
 		db: Session = Depends(get_db)
@@ -92,7 +92,7 @@ def get_hierarchy(
 
 @app.get("/api/provisions/search_hierarchy/{act_id}", response_model=List[schemas.ProvisionHierarchy])
 def search_hierarchy(
-		act_id: str = Path(..., description="The ID of the Act."),
+                act_id: str = FastAPIPath(..., description="The ID of the Act."),
 		query: str = Query(..., description="The search query string."),
 		db: Session = Depends(get_db)
 ):
@@ -115,7 +115,7 @@ def get_provision_by_ref_id(
 
 @app.get("/api/provisions/breadcrumbs/{internal_id}", response_model=List[schemas.BreadcrumbItem])
 def get_breadcrumbs(
-	internal_id: str = Path(..., description="The internal ID of the provision."),
+        internal_id: str = FastAPIPath(..., description="The internal ID of the provision."),
 	db: Session = Depends(get_db)
 ):
 	"""Get the breadcrumbs for a given provision."""
