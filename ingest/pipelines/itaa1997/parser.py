@@ -2,11 +2,13 @@
 import os
 import re
 import hashlib
+from io import BytesIO
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Optional, Pattern, List, Tuple, Set
+from typing import Any, Dict, Optional, Pattern, List, Tuple, Set
 
 import docx
+from PIL import Image, UnidentifiedImageError
 
 # We use tqdm for progress bars during parsing
 try:
@@ -35,7 +37,37 @@ config = Config()
 # Media Handling Helpers
 # =============================================================================
 
-CURRENT_MEDIA_CONTEXT: Dict[str, Dict[str, str]] = {}
+CURRENT_MEDIA_CONTEXT: Dict[str, Any] = {}
+
+_RENDERABLE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+
+
+def _convert_blob_to_png(blob: bytes) -> Optional[bytes]:
+	try:
+		with Image.open(BytesIO(blob)) as image:
+			mode = image.mode or ""
+			if mode not in ("RGB", "RGBA"):
+				if "A" in mode or mode in ("P", "LA"):
+					image = image.convert("RGBA")
+				else:
+					image = image.convert("RGB")
+			buffer = BytesIO()
+			image.save(buffer, format="PNG")
+			return buffer.getvalue()
+	except (UnidentifiedImageError, OSError, ValueError) as exc:
+		print(f"Warning: Unable to convert image to PNG ({exc}). Storing original bytes.")
+	return None
+
+
+def _record_media_alt_text(digest: str, alt_text: str) -> None:
+	if not alt_text or not CURRENT_MEDIA_CONTEXT:
+		return
+	cache: Dict[str, Any] = CURRENT_MEDIA_CONTEXT.get("cache", {})
+	entry = cache.get(digest)
+	if not entry:
+		return
+	alt_texts = entry.setdefault("alt_texts", set())
+	alt_texts.add(alt_text)
 
 
 def _sanitize_media_segment(value: str) -> str:
@@ -75,30 +107,43 @@ def _build_media_url(relative_path: str) -> str:
 	return base
 
 
-def _persist_image_blob(blob: bytes, partname: str, content_type: str) -> Optional[str]:
+def _persist_image_blob(blob: bytes, partname: str, content_type: str) -> Optional[Dict[str, Any]]:
 	if not CURRENT_MEDIA_CONTEXT:
 		return None
-	cache = CURRENT_MEDIA_CONTEXT.setdefault("cache", {})
-	digest = hashlib.sha1(blob).hexdigest()
-	if digest in cache:
-		return cache[digest]
-	extension = os.path.splitext(partname)[1].lower()
-	if not extension and content_type:
+	cache: Dict[str, Any] = CURRENT_MEDIA_CONTEXT.setdefault("cache", {})
+	original_extension = os.path.splitext(partname)[1].lower()
+	if not original_extension and content_type:
 		subtype = content_type.split('/')[-1].lower()
 		if subtype:
-			extension = f".{subtype}"
-	if not extension:
-		extension = ".bin"
-	filename = f"{digest[:16]}{extension}"
+			original_extension = f".{subtype}"
+	converted_blob = _convert_blob_to_png(blob)
+	stored_blob = converted_blob if converted_blob is not None else blob
+	stored_extension = ".png" if converted_blob is not None else (original_extension or ".bin")
+	digest = hashlib.sha1(stored_blob).hexdigest()
+	if digest in cache:
+		return cache[digest]
+	filename = f"{digest[:16]}{stored_extension}"
 	relative_path = os.path.join(CURRENT_MEDIA_CONTEXT["relative_dir"], filename)
 	absolute_path = os.path.join(config.MEDIA_ROOT, relative_path)
 	os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
 	if not os.path.exists(absolute_path):
 		with open(absolute_path, "wb") as media_file:
-			media_file.write(blob)
-	public_url = _build_media_url(relative_path)
-	cache[digest] = public_url
-	return public_url
+			media_file.write(stored_blob)
+	renderable = converted_blob is not None or stored_extension.lower() in _RENDERABLE_EXTENSIONS
+	public_url = _build_media_url(relative_path) if renderable else None
+	record: Dict[str, Any] = {
+		"digest": digest,
+		"public_url": public_url,
+		"relative_path": relative_path,
+		"absolute_path": absolute_path,
+		"stored_extension": stored_extension,
+		"source_extension": original_extension or stored_extension,
+		"converted_to_png": converted_blob is not None,
+		"renderable": renderable,
+		"alt_texts": set(),
+	}
+	cache[digest] = record
+	return record
 
 
 # Import docx components
@@ -348,20 +393,20 @@ def get_image_alt_text(paragraph) -> Tuple[str, Set[str]]:
 				continue
 			content_type = getattr(image_part, 'content_type', '')
 			partname = getattr(image_part, 'partname', '')
-			public_url = _persist_image_blob(blob, partname, content_type)
-			alt_for_md = alt_text or "Embedded image"
-
-			if not public_url:
-				if alt_text:
-					text_to_add = f"\n[Image Description: {alt_text}]\n\n"
-				else:
-					continue
+			record = _persist_image_blob(blob, partname, content_type)
+			if not record:
+				continue
+			digest = record.get("digest", "")
+			if alt_text:
+				_record_media_alt_text(digest, alt_text)
+			public_url = record.get("public_url") if record.get("renderable") else None
+			if public_url:
+				alt_for_md = alt_text or "Embedded image"
+				text_to_add = f"\n![{alt_for_md}]({public_url})\n\n"
+			elif alt_text:
+				text_to_add = f"\n[Image Description: {alt_text}]\n\n"
 			else:
-				text_to_add = f"\n![{alt_for_md}]({public_url})\n"
-				if alt_text:
-					text_to_add += f"\n[Image Description: {alt_text}]\n\n"
-				else:
-					text_to_add += "\n"
+				continue
 
 			if text_to_add not in alt_texts_md:
 				alt_texts_md.append(text_to_add)

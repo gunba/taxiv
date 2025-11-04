@@ -17,6 +17,7 @@ scipy
 python-docx
 tqdm
 python-dotenv
+Pillow
 
 # Google AI
 google-generativeai

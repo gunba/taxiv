@@ -1,6 +1,9 @@
 import re
+from io import BytesIO
+from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from ingest.pipelines.itaa1997 import parser
 
@@ -106,20 +109,157 @@ def test_format_paragraph_markdown_handles_nested_lists():
 
 
 def test_process_definition_content_preserves_list_markdown(monkeypatch):
-	formats, paragraphs = _build_paragraphs_for_lists()
-	monkeypatch.setattr(parser, 'Paragraph', FakeParagraph)
-	definition_tracker = parser.ListStateTracker()
-	definition_md = ''
-	for para in paragraphs[1:]:
-		content, _ = parser.process_definition_content(para, definition_tracker, definition_md)
-		definition_md += content
+        formats, paragraphs = _build_paragraphs_for_lists()
+        monkeypatch.setattr(parser, 'Paragraph', FakeParagraph)
+        definition_tracker = parser.ListStateTracker()
+        definition_md = ''
+        for para in paragraphs[1:]:
+                content, _ = parser.process_definition_content(para, definition_tracker, definition_md)
+                definition_md += content
 
-	expected = (
-		'- Bullet 1\n'
-		'    - Bullet nested\n'
-		'- Bullet 2\n\n'
-		'1. Number 1\n'
-		'    1. Number nested\n\n'
-		'Outro text\n\n'
-	)
-	assert definition_md == expected
+        expected = (
+                '- Bullet 1\n'
+                '    - Bullet nested\n'
+                '- Bullet 2\n\n'
+                '1. Number 1\n'
+                '    1. Number nested\n\n'
+                'Outro text\n\n'
+        )
+        assert definition_md == expected
+
+
+def _prime_media_context(tmp_path, monkeypatch):
+        monkeypatch.setattr(parser.config, 'MEDIA_ROOT', str(tmp_path))
+        monkeypatch.setattr(parser.config, 'MEDIA_URL_BASE', '/media')
+        parser._initialize_media_context('sample.docx')
+
+
+def _build_paragraph_with_image(blob, content_type, partname, alt_text, relationship_id='rId1'):
+        embed_key = parser.qn('r:embed')
+        link_key = parser.qn('r:link')
+
+        class _DocPr:
+                def __init__(self, text):
+                        self._text = text
+
+                def get(self, key: str) -> str:
+                        if key == 'descr':
+                                return self._text
+                        if key == 'title':
+                                return ''
+                        return ''
+
+        class _Blip:
+                def __init__(self, rid):
+                        self._map = {embed_key: rid, link_key: None}
+
+                def get(self, key: str):
+                        return self._map.get(key)
+
+        class _Drawing:
+                def __init__(self):
+                        self._doc_pr = _DocPr(alt_text)
+                        self._blip = _Blip(relationship_id)
+
+                def iter(self, qname: str):
+                        if 'docPr' in qname:
+                                yield self._doc_pr
+                        elif 'blip' in qname:
+                                yield self._blip
+
+        class _Element:
+                def __init__(self):
+                        self._drawing = _Drawing()
+
+                def iter(self, qname: str):
+                        if 'drawing' in qname:
+                                yield self._drawing
+
+        image_part = type('ImagePart', (), {
+                'blob': blob,
+                'content_type': content_type,
+                'partname': partname,
+        })()
+
+        paragraph = type('Paragraph', (), {})()
+        paragraph._element = _Element()
+        paragraph.part = type('Part', (), {'related_parts': {relationship_id: image_part}})()
+        paragraph.text = ''
+        return paragraph
+
+
+def test_persist_image_blob_converts_to_png(tmp_path, monkeypatch):
+        _prime_media_context(tmp_path, monkeypatch)
+
+        image = Image.new('RGB', (2, 2), color=(255, 0, 0))
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG')
+        blob = buffer.getvalue()
+
+        record = parser._persist_image_blob(blob, 'word/media/image1.jpeg', 'image/jpeg')
+
+        assert record is not None
+        assert record['stored_extension'] == '.png'
+        assert record['converted_to_png'] is True
+        assert record['renderable'] is True
+        assert record['public_url']
+        saved_path = Path(record['absolute_path'])
+        assert saved_path.exists()
+        assert saved_path.suffix == '.png'
+
+        # Ensure cached reuse returns the same metadata object
+        cached = parser._persist_image_blob(blob, 'word/media/image1.jpeg', 'image/jpeg')
+        assert cached is record
+
+        parser._clear_media_context()
+
+
+def test_get_image_alt_text_returns_markdown_without_description(tmp_path, monkeypatch):
+        _prime_media_context(tmp_path, monkeypatch)
+
+        image = Image.new('RGB', (1, 1), color=(0, 128, 0))
+        buffer = BytesIO()
+        image.save(buffer, format='PNG')
+        paragraph = _build_paragraph_with_image(
+                buffer.getvalue(),
+                'image/png',
+                'word/media/image2.png',
+                'An illustrative graph',
+        )
+
+        markdown, terms = parser.get_image_alt_text(paragraph)
+
+        assert markdown.strip().startswith('![')
+        assert '[Image Description:' not in markdown
+        assert not terms
+
+        cache = parser.CURRENT_MEDIA_CONTEXT['cache']
+        assert len(cache) == 1
+        record = next(iter(cache.values()))
+        assert 'An illustrative graph' in record['alt_texts']
+
+        parser._clear_media_context()
+
+
+def test_get_image_alt_text_falls_back_to_description_when_not_renderable(tmp_path, monkeypatch):
+        _prime_media_context(tmp_path, monkeypatch)
+
+        paragraph = _build_paragraph_with_image(
+                b'not-an-image',
+                'image/x-emf',
+                'word/media/vector.emf',
+                'Diagram of tax flow',
+        )
+
+        markdown, _ = parser.get_image_alt_text(paragraph)
+
+        assert '![' not in markdown
+        assert '[Image Description: Diagram of tax flow]' in markdown
+
+        cache = parser.CURRENT_MEDIA_CONTEXT['cache']
+        record = next(iter(cache.values()))
+        assert record['renderable'] is False
+        assert not record['public_url']
+        assert 'Diagram of tax flow' in record['alt_texts']
+
+        parser._clear_media_context()
