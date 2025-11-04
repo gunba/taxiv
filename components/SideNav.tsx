@@ -10,6 +10,7 @@ interface NavNodeProps {
     selectedNodeId: string | null;
     level: number;
     isSearchActive: boolean;
+    ancestry: string[];
 }
 
 const NavNode: React.FC<NavNodeProps> = ({
@@ -19,6 +20,7 @@ const NavNode: React.FC<NavNodeProps> = ({
                                              selectedNodeId,
                                              level,
                                              isSearchActive,
+                                             ancestry,
                                          }) => {
     const embeddedChildren = Array.isArray(node.children) ? node.children : [];
 
@@ -75,36 +77,50 @@ const NavNode: React.FC<NavNodeProps> = ({
         }
     };
 
-    const basePadding = (level - 1) * 1.25;
+    const depthLabel = `L${level}`;
+    const breadcrumb = ancestry.join(' › ');
+    const showExpandControl = hasChildren || isLoading;
 
     return (
         <li>
             <div
                 onClick={handleSelect}
-                className={`flex items-center justify-between p-2 my-1 rounded-md cursor-pointer transition-colors duration-150 ${
+                className={`flex items-start gap-3 p-2 my-1 rounded-md cursor-pointer transition-colors duration-150 ${
                     isSelected ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
                 }`}
-                style={{paddingLeft: `${basePadding + 0.5}rem`}}
             >
-                <span className="flex-1 truncate text-sm font-medium">{node.title}</span>
-                {(hasChildren || isLoading) && (
-                    <button
-                        onClick={toggleExpand}
-                        className="ml-2 p-1 rounded-full hover:bg-gray-600 w-6 h-6 flex items-center justify-center"
-                        aria-label="Toggle expansion"
-                    >
-                        {isLoading ? (
-                            <span className="text-xs">...</span>
-                        ) : (
-                            <ChevronRightIcon
-                                className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}/>
-                        )}
-                    </button>
-                )}
+                <div className="w-6 flex justify-center pt-1">
+                    {showExpandControl ? (
+                        <button
+                            onClick={toggleExpand}
+                            className="p-1 rounded-full hover:bg-gray-600 w-6 h-6 flex items-center justify-center"
+                            aria-label="Toggle expansion"
+                        >
+                            {isLoading ? (
+                                <span className="text-xs">...</span>
+                            ) : (
+                                <ChevronRightIcon className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}/>
+                            )}
+                        </button>
+                    ) : (
+                        <span className="inline-block w-6 h-6" aria-hidden="true" />
+                    )}
+                </div>
+
+                <span className="px-2 py-1 text-xs font-semibold rounded bg-gray-800 text-gray-300 shrink-0 mt-0.5">
+                    {depthLabel}
+                </span>
+
+                <div className="flex flex-col min-w-0">
+                    {ancestry.length > 0 && (
+                        <span className="text-[0.65rem] uppercase tracking-wide text-gray-400 truncate">{breadcrumb}</span>
+                    )}
+                    <span className="truncate text-sm font-medium">{node.title}</span>
+                </div>
             </div>
 
             {isExpanded && children && children.length > 0 && (
-                <ul className="pl-2 border-l border-gray-600 ml-2">
+                <ul className="mt-2 space-y-1 border-t border-gray-800 pt-2 pl-0 list-none">
                     {children.map(child => (
                         <NavNode
                             key={child.internal_id}
@@ -114,6 +130,7 @@ const NavNode: React.FC<NavNodeProps> = ({
                             selectedNodeId={selectedNodeId}
                             level={level + 1}
                             isSearchActive={isSearchActive}
+                            ancestry={[...ancestry, node.title]}
                         />
                     ))}
                 </ul>
@@ -242,7 +259,7 @@ const SideNav: React.FC<SideNavProps> = ({actId, onSelectNode, selectedNodeId}) 
                 {isSearchLoading && <div className="p-2 text-gray-400">Searching...</div>}
 
                 {!isSearchLoading && nodesToDisplay.length > 0 && (
-                    <ul>
+                    <ul className="space-y-1 list-none pl-0">
                         {nodesToDisplay.map(node => (
                             <NavNode
                                 key={node.internal_id}
@@ -252,6 +269,7 @@ const SideNav: React.FC<SideNavProps> = ({actId, onSelectNode, selectedNodeId}) 
                                 selectedNodeId={selectedNodeId}
                                 level={1}
                                 isSearchActive={isSearchActive}
+                                ancestry={[]}
                             />
                         ))}
                     </ul>
