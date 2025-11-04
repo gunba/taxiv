@@ -750,51 +750,51 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 							DEFINITIONS_995_1[current_definition_term]["content_md"] += content
 							DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
 	
-			# --- Standard Content Processing (Pass 2) ---
-			if pass_num == 2:
-				if is_paragraph:
-					if current_list_tracker is None:
-						current_list_tracker = ListStateTracker()
-					alt_text_md, alt_terms = get_image_alt_text(block)
-					if alt_text_md:
-						current_section["content_md"] += current_list_tracker.close_lists(
-							bool(current_section["content_md"])
-						)
-						current_section["content_md"] += alt_text_md
-						current_section["defined_terms_used"].update(alt_terms)
-	
-					if text:
-						indentation = get_indentation(block)
-						# Identify terms (using precise regex in Pass 2)
-						terms = identify_defined_terms(text)
-						current_section["defined_terms_used"].update(terms)
-	
-						processed_text = text
-	
-						# Apply formatting based on known styles (Simplified logic matching original script intent)
-						if style_name == 'SubsectionHead':
-							processed_text = f"*{processed_text}*"
-						elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
-							processed_text = f"_{processed_text}_"
-	
-						# Append content to the current section with list handling
-						current_section["content_md"] += format_paragraph_markdown(
-							block,
-							processed_text,
-							current_list_tracker,
-							bool(current_section["content_md"]),
-							indentation
-						)
-	
-				elif is_table:
-					# Handle tables
-					if current_list_tracker is not None:
-						current_section["content_md"] += current_list_tracker.close_lists(
-							bool(current_section["content_md"])
-						)
-					table_md, table_terms = process_table(block)
-					current_section["content_md"] += table_md
-					current_section["defined_terms_used"].update(table_terms)
+                        # --- Standard Content Processing (Pass 2) ---
+                        if pass_num == 2 and current_section:
+                                if is_paragraph:
+                                        if current_list_tracker is None:
+                                                current_list_tracker = ListStateTracker()
+                                        alt_text_md, alt_terms = get_image_alt_text(block)
+                                        if alt_text_md:
+                                                current_section["content_md"] += current_list_tracker.close_lists(
+                                                        bool(current_section["content_md"])
+                                                )
+                                                current_section["content_md"] += alt_text_md
+                                                current_section["defined_terms_used"].update(alt_terms)
+
+                                        if text:
+                                                indentation = get_indentation(block)
+                                                # Identify terms (using precise regex in Pass 2)
+                                                terms = identify_defined_terms(text)
+                                                current_section["defined_terms_used"].update(terms)
+
+                                                processed_text = text
+
+                                                # Apply formatting based on known styles (Simplified logic matching original script intent)
+                                                if style_name == 'SubsectionHead':
+                                                        processed_text = f"*{processed_text}*"
+                                                elif (style_name and (style_name.startswith('note(') or style_name.startswith('Note('))):
+                                                        processed_text = f"_{processed_text}_"
+
+                                                # Append content to the current section with list handling
+                                                current_section["content_md"] += format_paragraph_markdown(
+                                                        block,
+                                                        processed_text,
+                                                        current_list_tracker,
+                                                        bool(current_section["content_md"]),
+                                                        indentation
+                                                )
+
+                                elif is_table:
+                                        # Handle tables
+                                        if current_list_tracker is not None:
+                                                current_section["content_md"] += current_list_tracker.close_lists(
+                                                        bool(current_section["content_md"])
+                                                )
+                                        table_md, table_terms = process_table(block)
+                                        current_section["content_md"] += table_md
+                                        current_section["defined_terms_used"].update(table_terms)
 	
 	
 		# Close the progress bar for this document
