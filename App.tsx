@@ -165,7 +165,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Main Content Panel */}
-            <main className="w-full md:w-1/2 h-full overflow-y-auto bg-gray-900">
+            <main className="w-full md:w-1/2 h-full overflow-y-auto bg-gray-900 scrollbar-stable">
                 <MainContent
                     node={mainContentData}
                     breadcrumbs={breadcrumbs}
@@ -177,7 +177,7 @@ const App: React.FC = () => {
             </main>
 
             {/* Detail View Panel */}
-            <aside className="hidden lg:block lg:w-1/4 h-full border-l border-gray-700 bg-gray-800 overflow-y-auto">
+            <aside className="hidden lg:block lg:w-1/4 h-full border-l border-gray-700 bg-gray-800 overflow-y-auto scrollbar-stable">
                 <DetailView
                     content={detailViewContent}
                     onTermClick={handleTermClick}
