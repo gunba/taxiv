@@ -1,3 +1,4 @@
+import copy
 import re
 from io import BytesIO
 from pathlib import Path
@@ -6,6 +7,27 @@ import pytest
 from PIL import Image
 
 from ingest.pipelines.itaa1997 import parser
+
+
+@pytest.fixture
+def definition_state_cleanup():
+	original_definitions = copy.deepcopy(parser.DEFINITIONS_995_1)
+	original_variant_map = copy.deepcopy(parser.DEFINITION_VARIANT_MAP)
+	original_greedy_regex = parser.DEFINITION_GREEDY_REGEX
+	original_marker_regex = parser.DEFINITION_MARKER_REGEX
+
+	try:
+		parser.DEFINITIONS_995_1.clear()
+		parser.DEFINITION_VARIANT_MAP.clear()
+		parser.DEFINITION_GREEDY_REGEX = None
+		yield
+	finally:
+		parser.DEFINITIONS_995_1.clear()
+		parser.DEFINITIONS_995_1.update(original_definitions)
+		parser.DEFINITION_VARIANT_MAP.clear()
+		parser.DEFINITION_VARIANT_MAP.update(original_variant_map)
+		parser.DEFINITION_GREEDY_REGEX = original_greedy_regex
+		parser.DEFINITION_MARKER_REGEX = original_marker_regex
 
 
 class _FakeValue:
@@ -124,7 +146,7 @@ def test_process_definition_content_preserves_list_markdown(monkeypatch):
                 '1. Number 1\n'
                 '    1. Number nested\n\n'
                 'Outro text\n\n'
-        )
+	)
         assert definition_md == expected
 
 
@@ -225,7 +247,7 @@ def test_get_image_alt_text_returns_markdown_without_description(tmp_path, monke
                 'image/png',
                 'word/media/image2.png',
                 'An illustrative graph',
-        )
+	)
 
         markdown, terms = parser.get_image_alt_text(paragraph)
 
@@ -249,7 +271,7 @@ def test_get_image_alt_text_falls_back_to_description_when_not_renderable(tmp_pa
                 'image/x-emf',
                 'word/media/vector.emf',
                 'Diagram of tax flow',
-        )
+	)
 
         markdown, _ = parser.get_image_alt_text(paragraph)
 
@@ -263,3 +285,40 @@ def test_get_image_alt_text_falls_back_to_description_when_not_renderable(tmp_pa
         assert 'Diagram of tax flow' in record['alt_texts']
 
         parser._clear_media_context()
+
+
+def _configure_definitions(terms):
+	parser.DEFINITION_VARIANT_MAP.clear()
+	parser.DEFINITION_GREEDY_REGEX = None
+	parser.DEFINITIONS_995_1.clear()
+	for term in terms:
+		parser.DEFINITIONS_995_1[term] = {}
+	parser.build_definition_greedy_matcher()
+
+
+def test_greedy_definition_matching_prefers_longest(definition_state_cleanup):
+	_configure_definitions(['income tax', 'tax'])
+
+	text = 'Income tax applies alongside fringe benefits legislation.'
+	result = parser.find_defined_terms_in_text(text)
+
+	assert 'income tax' in result
+	assert 'tax' not in result
+
+
+def test_greedy_definition_matching_handles_plurals_and_case(definition_state_cleanup):
+	_configure_definitions(['tax offset'])
+
+	text = 'Eligible Tax Offsets can reduce liability.'
+	result = parser.find_defined_terms_in_text(text)
+
+	assert result == {'tax offset'}
+
+
+def test_greedy_definition_matching_ignores_markdown_links(definition_state_cleanup):
+	_configure_definitions(['tax offset'])
+
+	text = 'Refer to [tax offset](#link) and note that the tax offset applies.'
+	result = parser.find_defined_terms_in_text(text)
+
+	assert result == {'tax offset'}
