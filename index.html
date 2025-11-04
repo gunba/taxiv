@@ -28,6 +28,44 @@
             }
         }
     </script>
+    <style>
+		:root {
+			color-scheme: dark;
+		}
+
+		.scrollbar-stable {
+			scrollbar-gutter: stable;
+			scrollbar-gutter: stable both-edges;
+		}
+
+		body,
+		.scrollbar-stable {
+			scrollbar-width: thin;
+			scrollbar-color: #4b5563 #1e1e1e;
+		}
+
+		::-webkit-scrollbar {
+			width: 12px;
+		}
+
+		::-webkit-scrollbar-track {
+			background-color: #1e1e1e;
+		}
+
+		::-webkit-scrollbar-thumb {
+			background-color: #4b5563;
+			border-radius: 9999px;
+			border: 3px solid #1e1e1e;
+		}
+
+		::-webkit-scrollbar-thumb:hover {
+			background-color: #2563eb;
+		}
+
+		::-webkit-scrollbar-corner {
+			background-color: #1e1e1e;
+		}
+    </style>
     <script type="importmap">
         {
           "imports": {

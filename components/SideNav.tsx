@@ -255,7 +255,7 @@ const SideNav: React.FC<SideNavProps> = ({actId, onSelectNode, selectedNodeId}) 
                 </div>
             )}
 
-            <nav className="flex-grow overflow-y-auto px-4 pb-4">
+            <nav className="flex-grow overflow-y-auto px-4 pb-4 scrollbar-stable">
                 {isSearchLoading && <div className="p-2 text-gray-400">Searching...</div>}
 
                 {!isSearchLoading && nodesToDisplay.length > 0 && (

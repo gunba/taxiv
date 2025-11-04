@@ -61,7 +61,7 @@ const DetailView: React.FC<DetailViewProps> = ({
                 </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 scrollbar-stable">
                 <section>
                     <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-2">Content</h3>
                     {data.content_md ? (
