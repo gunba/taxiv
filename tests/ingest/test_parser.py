@@ -43,7 +43,7 @@ class _FakeNumberingPart:
 
 class FakeParagraph:
 	def __init__(self, text: str, num_id: str | None = None, level: int | None = None,
-			formats=None):
+				 formats=None):
 		self.text = text
 		self._element = None
 		self.paragraph_format = type('PF', (), {'left_indent': None})()

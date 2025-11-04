@@ -65,9 +65,8 @@ class Config:
 	# Regex patterns
 	TITLE_PATTERNS = {
 		"Structure": re.compile(r'^(Chapter|Part|Division|Subdivision)\s+([0-9A-Z\-]+)(?:\s*(?:—|-|--)\s*(.*))?$',
-				re.IGNORECASE),
+								re.IGNORECASE),
 		"Section": re.compile(r'^([0-9\-A-Z]+)\s+(.*)$', re.IGNORECASE),
 	}
 
 	FALLBACK_ASTERISK_REGEX = re.compile(r'(?:^|[\s\(])\*(?P<term>[a-zA-Z0-9\s\-\(\)]+?)(?=[\s,.;:)]|$)')
-

@@ -44,8 +44,10 @@ describe('InteractiveContent indentation handling', () => {
         const {container} = render(
             <InteractiveContent
                 node={baseNode}
-                onReferenceByRefIdClick={() => {}}
-                onTermClick={() => {}}
+                onReferenceByRefIdClick={() => {
+                }}
+                onTermClick={() => {
+                }}
             />,
         );
 
@@ -62,8 +64,10 @@ describe('InteractiveContent indentation handling', () => {
         const {container} = render(
             <InteractiveContent
                 node={baseNode}
-                onReferenceByRefIdClick={() => {}}
-                onTermClick={() => {}}
+                onReferenceByRefIdClick={() => {
+                }}
+                onTermClick={() => {
+                }}
             />,
         );
 

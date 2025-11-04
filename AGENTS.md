@@ -9,10 +9,10 @@ You are an expert full-stack developer (React/TypeScript Frontend, Python/FastAP
 However, your memory is volatile. You must rely on the externalized state management system defined here.
 
 1. **Plan First:** No implementation code shall be written without an approved plan.
-2. **Externalize State:** Maintain the current task status in the `dev/[task-name]` directory (create this directory if it does not exist).
+2. **Externalize State:** Maintain the current task status in the `dev/[task-name]` directory (create this directory if
+   it does not exist).
 3. **Adhere to Standards:** Follow the standards defined in the `standards` directory.
 4. **Iterate and Review:** Work in small steps and utilize the Quality Control agents frequently.
-
 
 ## 2. The Dev Docs Workflow (Externalized State)
 

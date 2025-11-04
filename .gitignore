@@ -24,6 +24,8 @@ dist-ssr
 *.sw?
 *.docx
 *.wmf
+*.emf
+*.png
 
 #
 .env
