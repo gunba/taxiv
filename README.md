@@ -29,7 +29,7 @@ The project is structured as a multi-service application managed by Docker Compo
 
 1. Clone the repository.
 2. Ensure the `.env` file exists in the project root (refer to the provided `.env` structure).
-3. **Set your `GOOGLE_CLOUD_API_KEY` and `GEMINI_API_KEY`** in the `.env` file.
+3. **Set your `GOOGLE_CLOUD_API_KEY`** in the `.env` file.
 
 ### 2. Start the Infrastructure
 
