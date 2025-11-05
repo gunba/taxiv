@@ -1,5 +1,7 @@
 # Taxiv: Tax Code Explorer
 
+![Taxiv application screenshot](./image.png)
+
 A modern, interactive web application for browsing, analyzing, and understanding Australian tax legislation. This
 project utilizes a sophisticated ingestion pipeline (Python, Gemini, NetworkX) to process legislation documents into a
 structured database (PostgreSQL with LTree), served via a backend API (FastAPI) and visualized with a dynamic frontend (
