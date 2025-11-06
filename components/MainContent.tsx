@@ -4,6 +4,7 @@ import {TaxDataObject} from '../types';
 import InteractiveContent from './InteractiveContent';
 import {ChevronRightIcon, ClipboardIcon} from './Icons';
 import {api} from '../utils/api';
+import {formatNodeHeading} from '../utils/nodeFormatting';
 
 interface MainContentProps {
     node: TaxDataObject | null;
@@ -119,11 +120,13 @@ const MainContent: React.FC<MainContentProps> = ({
         };
     }, [node]);
 
-    const copyToClipboard = useCallback(() => {
-        if (!topProvision || !topProvision.content_md) return;
-        const markdown = `# ${topProvision.title}\n\n${topProvision.content_md}\n\n`;
-        navigator.clipboard.writeText(markdown).catch(err => console.error('Failed to copy text: ', err));
-    }, [topProvision]);
+	const copyToClipboard = useCallback(() => {
+		if (!topProvision || !topProvision.content_md) return;
+		const {markdownHeading} = formatNodeHeading(topProvision);
+		const heading = markdownHeading || topProvision.title || topProvision.ref_id;
+		const markdown = `# ${heading}\n\n${topProvision.content_md}\n\n`;
+		navigator.clipboard.writeText(markdown).catch(err => console.error('Failed to copy text: ', err));
+	}, [topProvision]);
 
     const loadNextProvision = useCallback(async () => {
         if (isLoadingChildren) {
