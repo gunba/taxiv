@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Integer, Text, Float, Index, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy_utils import LtreeType as LTREE
 
@@ -96,3 +97,23 @@ class DefinedTermUsage(Base):
 	__table_args__ = (
 		UniqueConstraint('source_internal_id', 'term_text', name='uq_term_usage_source_term'),
 	)
+
+
+class BaselinePagerank(Base):
+	__tablename__ = 'baseline_pagerank'
+	provision_id = Column(String(255), ForeignKey('provisions.internal_id'), primary_key=True, index=True)
+	pi = Column(Float, nullable=False)
+
+	provision = relationship("Provision", foreign_keys=[provision_id])
+
+
+class RelatednessFingerprint(Base):
+	"""
+	Stores precomputed top-K personalized diffusion masses for each seed (provision).
+	Definitions are represented as provisions, so we only persist provision seeds for now.
+	"""
+	__tablename__ = 'relatedness_fingerprint'
+	source_kind = Column(String(20), primary_key=True)
+	source_id = Column(String(255), primary_key=True, index=True)
+	neighbors = Column(JSONB, nullable=False)
+	captured_mass_provisions = Column(Float, nullable=False)
