@@ -2,9 +2,10 @@
 
 // Matches ReferenceToDetail schema
 export interface ReferenceInfo {
-    target_ref_id: string;
-    snippet: string | null;
-    target_title: string | null;
+	target_ref_id: string;
+	snippet: string | null;
+	target_title: string | null;
+	target_internal_id: string | null;
 }
 
 // Matches ReferencedByDetail schema

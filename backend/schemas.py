@@ -19,6 +19,7 @@ class ReferenceToDetail(BaseModel):
 	target_ref_id: str
 	snippet: Optional[str]
 	target_title: Optional[str]  # Populated in CRUD
+	target_internal_id: Optional[str]  # Populated in CRUD
 
 
 class ReferencedByDetail(BaseModel):
@@ -74,3 +75,12 @@ ProvisionHierarchy.model_rebuild()
 class BreadcrumbItem(BaseModel):
 	internal_id: str
 	title: str
+
+
+class ExportMarkdownRequest(BaseModel):
+	provision_internal_id: str
+	include_descendants: bool = False
+
+
+class ExportMarkdownResponse(BaseModel):
+	markdown: str
