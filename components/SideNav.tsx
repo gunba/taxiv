@@ -1,7 +1,16 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {HierarchyNode} from '../types';
 import {api} from '../utils/api';
 import {ChevronRightIcon, SearchIcon} from './Icons';
+import {exportMarkdownToClipboard} from '../utils/exportMarkdown';
+
+type ExportAction = 'single' | 'with-descendants';
+
+interface ExportState {
+    status: 'idle' | 'pending' | 'success' | 'error';
+    action: ExportAction | null;
+    message: string | null;
+}
 
 interface NavNodeProps {
     node: HierarchyNode;
@@ -13,7 +22,7 @@ interface NavNodeProps {
     ancestry: string[];
 }
 
-const NavNode: React.FC<NavNodeProps> = ({
+export const NavNode: React.FC<NavNodeProps> = ({
                                              node,
                                              actId,
                                              onSelectNode,
@@ -27,6 +36,39 @@ const NavNode: React.FC<NavNodeProps> = ({
     const [fetchedChildren, setFetchedChildren] = useState<HierarchyNode[] | null>(null);
     const [isExpanded, setIsExpanded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [isActionHovered, setIsActionHovered] = useState(false);
+    const [isActionFocused, setIsActionFocused] = useState(false);
+    const [exportState, setExportState] = useState<ExportState>({status: 'idle', action: null, message: null});
+
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const feedbackTimeoutRef = useRef<number | null>(null);
+    const isMountedRef = useRef(true);
+
+    const safeSetExportState = useCallback((update: React.SetStateAction<ExportState>) => {
+        if (!isMountedRef.current) {
+            return;
+        }
+        setExportState(update);
+    }, []);
+
+    const clearFeedbackTimeout = useCallback(() => {
+        if (feedbackTimeoutRef.current !== null) {
+            window.clearTimeout(feedbackTimeoutRef.current);
+            feedbackTimeoutRef.current = null;
+        }
+    }, []);
+
+    const resetExportState = useCallback(() => {
+        safeSetExportState(prev => (prev.status === 'pending' ? prev : {status: 'idle', action: null, message: null}));
+    }, [safeSetExportState]);
+
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+            abortControllerRef.current?.abort();
+            clearFeedbackTimeout();
+        };
+    }, [clearFeedbackTimeout]);
 
     const isSelected = node.internal_id === selectedNodeId;
 
@@ -77,14 +119,101 @@ const NavNode: React.FC<NavNodeProps> = ({
         }
     };
 
+    const handleActionsFocus = useCallback(() => {
+        setIsActionFocused(true);
+    }, []);
+
+    const handleActionsBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+        const nextFocus = event.relatedTarget as HTMLElement | null;
+        if (!nextFocus || !event.currentTarget.contains(nextFocus)) {
+            setIsActionFocused(false);
+        }
+    }, []);
+
+    const handleExport = useCallback(
+        async (includeDescendants: boolean) => {
+            if (exportState.status === 'pending') {
+                return;
+            }
+
+            const action: ExportAction = includeDescendants ? 'with-descendants' : 'single';
+            abortControllerRef.current?.abort();
+            const controller = new AbortController();
+            abortControllerRef.current = controller;
+            clearFeedbackTimeout();
+            safeSetExportState({status: 'pending', action, message: null});
+            let shouldScheduleReset = true;
+
+            try {
+                const result = await exportMarkdownToClipboard({
+                    internalId: node.internal_id,
+                    includeDescendants,
+                    signal: controller.signal,
+                });
+
+                if (!isMountedRef.current) {
+                    return;
+                }
+
+                if (result.status === 'success' || result.status === 'clipboard-fallback') {
+                    const message =
+                        result.status === 'clipboard-fallback'
+                            ? 'Copied markdown. Clipboard permissions are restricted; paste manually if needed.'
+                            : 'Markdown copied to clipboard.';
+                    safeSetExportState({status: 'success', action, message});
+                } else if (result.status === 'cancelled') {
+                    shouldScheduleReset = false;
+                    resetExportState();
+                    return;
+                } else {
+                    const message = result.error?.message ?? 'Failed to export markdown.';
+                    safeSetExportState({status: 'error', action, message});
+                }
+            } catch (error) {
+                if (!isMountedRef.current) {
+                    return;
+                }
+
+                const message = error instanceof Error ? error.message : 'Failed to export markdown.';
+                safeSetExportState({status: 'error', action, message});
+            } finally {
+                if (isMountedRef.current) {
+                    abortControllerRef.current = null;
+                    if (shouldScheduleReset) {
+                        feedbackTimeoutRef.current = window.setTimeout(() => {
+                            resetExportState();
+                            feedbackTimeoutRef.current = null;
+                        }, 2000);
+                    }
+                }
+            }
+        },
+        [
+            clearFeedbackTimeout,
+            exportState.status,
+            node.internal_id,
+            resetExportState,
+            safeSetExportState,
+        ],
+    );
+
     const depthLabel = `L${level}`;
     const breadcrumb = ancestry.join(' › ');
     const showExpandControl = hasChildren || isLoading;
+    const isPending = exportState.status === 'pending';
+    const actionGroupVisible =
+        isActionHovered ||
+        isActionFocused ||
+        exportState.status === 'pending' ||
+        exportState.status === 'success' ||
+        exportState.status === 'error';
 
     return (
         <li>
             <div
                 onClick={handleSelect}
+                onMouseEnter={() => setIsActionHovered(true)}
+                onMouseLeave={() => setIsActionHovered(false)}
                 className={`flex items-start gap-3 p-2 my-1 rounded-md cursor-pointer transition-colors duration-150 ${
                     isSelected ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
                 }`}
@@ -117,7 +246,60 @@ const NavNode: React.FC<NavNodeProps> = ({
                     )}
                     <span className="truncate text-sm font-medium">{node.title}</span>
                 </div>
+
+                <div
+                    onFocus={handleActionsFocus}
+                    onBlur={handleActionsBlur}
+                    className={`ml-auto flex items-center gap-2 transition-opacity duration-150 ${
+                        actionGroupVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+                    }`}
+                >
+                    <button
+                        type="button"
+                        onClick={event => {
+                            event.stopPropagation();
+                            void handleExport(false);
+                        }}
+                        className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label={`Copy markdown for ${node.title}`}
+                        disabled={isPending}
+                    >
+                        {isPending && exportState.action === 'single' ? (
+                            <span
+                                className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+                                aria-hidden="true"
+                            />
+                        ) : (
+                            <span>Copy</span>
+                        )}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={event => {
+                            event.stopPropagation();
+                            void handleExport(true);
+                        }}
+                        className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label={`Copy markdown for ${node.title} with descendants`}
+                        disabled={isPending}
+                    >
+                        {isPending && exportState.action === 'with-descendants' ? (
+                            <span
+                                className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+                                aria-hidden="true"
+                            />
+                        ) : (
+                            <span>Copy all</span>
+                        )}
+                    </button>
+                </div>
             </div>
+
+            {exportState.message && (
+                <div className="ml-14 mt-1 text-xs text-gray-400" role="status" aria-live="polite">
+                    {exportState.message}
+                </div>
+            )}
 
             {isExpanded && children && children.length > 0 && (
                 <ul className="mt-2 space-y-1 border-t border-gray-800 pt-2 pl-0 list-none">
