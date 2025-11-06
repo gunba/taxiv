@@ -185,9 +185,12 @@ def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDet
 	references_to_query = db.query(
 		models.Reference.target_ref_id,
 		models.Reference.snippet,
-		TargetProvision.title.label("target_title")
-	).outerjoin(TargetProvision, TargetProvision.internal_id == models.Reference.target_internal_id
-				).filter(models.Reference.source_internal_id == internal_id).all()
+		TargetProvision.title.label("target_title"),
+		models.Reference.target_internal_id
+	).outerjoin(
+		TargetProvision,
+		TargetProvision.internal_id == models.Reference.target_internal_id
+	).filter(models.Reference.source_internal_id == internal_id).all()
 
 	references_to = [ReferenceToDetail.model_validate(r._asdict()) for r in references_to_query]
 

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend import crud, schemas
 from backend.config import get_settings
 from backend.database import initialize_engine, Base, get_db
+from backend.services.export_markdown import export_markdown_for_provision
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
@@ -120,3 +121,16 @@ def get_breadcrumbs(
 ):
 	"""Get the breadcrumbs for a given provision."""
 	return crud.get_breadcrumbs(db, internal_id)
+
+
+@app.post("/api/provisions/export_markdown", response_model=schemas.ExportMarkdownResponse)
+def export_markdown(request: schemas.ExportMarkdownRequest, db: Session = Depends(get_db)):
+	try:
+		markdown = export_markdown_for_provision(
+			db,
+			request.provision_internal_id,
+			request.include_descendants,
+		)
+	except ValueError as exc:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+	return schemas.ExportMarkdownResponse(markdown=markdown)
