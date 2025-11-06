@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install deps
+COPY mcp_server/requirements.txt /app/mcp_server/requirements.txt
+RUN pip install --no-cache-dir -r /app/mcp_server/requirements.txt
+
+# Copy code (only what we need at runtime)
+COPY mcp_server /app/mcp_server
+
+EXPOSE 8765
+
+# Environment variables with sane defaults
+ENV BACKEND_BASE_URL=http://backend:8000 \
+MCP_HOST=0.0.0.0 \
+MCP_PORT=8765 \
+ACT_ID_DEFAULT=ITAA1997 \
+MCP_HTTP_TIMEOUT=30
+
+CMD ["python", "-m", "mcp_server.server"]
