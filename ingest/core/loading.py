@@ -11,8 +11,15 @@ from sqlalchemy.orm import Session
 # Note: This requires the backend module structure to be in the Python path,
 # which is handled by the Docker setup (WORKDIR /app).
 try:
-	from backend.database import get_db, initialize_engine, Base
-	from backend.models.legislation import Act, Provision, Reference, DefinedTermUsage
+        from backend.database import get_db, initialize_engine, Base
+        from backend.models.legislation import (
+                Act,
+                Provision,
+                Reference,
+                DefinedTermUsage,
+                BaselinePagerank,
+                RelatednessFingerprint,
+        )
 except ImportError as e:
 	logging.error(
 		f"Failed to import backend modules. Ensure the environment is set up correctly (e.g., running inside Docker container). Error: {e}")
@@ -32,6 +39,14 @@ except ImportError as e:
 
 
 	class DefinedTermUsage:
+		pass
+
+
+	class BaselinePagerank:
+		pass
+
+
+	class RelatednessFingerprint:
 		pass
 
 
@@ -261,3 +276,55 @@ class DatabaseLoader:
 				db.rollback()
 			logger.error(f"An unexpected error occurred. Rolling back. Error: {e}")
 			logger.error(traceback.format_exc())
+
+	def load_relatedness_data(self, baseline_pi: dict, fingerprints: dict):
+		"""
+		Bulk insert baseline PageRank and personalized fingerprints for the act's provisions.
+		"""
+		logger.info("Loading relatedness baseline and fingerprints...")
+		db_session_generator = get_db()
+		db = None
+		try:
+			db = next(db_session_generator)
+			subquery = db.query(Provision.internal_id).filter(Provision.act_id == self.act_id).subquery()
+			db.query(BaselinePagerank).filter(BaselinePagerank.provision_id.in_(subquery)).delete(synchronize_session=False)
+			db.query(RelatednessFingerprint).filter(RelatednessFingerprint.source_id.in_(subquery)).delete(synchronize_session=False)
+			db.commit()
+
+			if baseline_pi:
+				db.bulk_insert_mappings(BaselinePagerank, [
+					{"provision_id": provision_id, "pi": float(value)}
+					for provision_id, value in baseline_pi.items()
+				])
+				db.commit()
+
+			if fingerprints:
+				rows = []
+				for source_id, (neighbors, captured) in fingerprints.items():
+					rows.append({
+						"source_kind": "provision",
+						"source_id": source_id,
+						"neighbors": neighbors,
+						"captured_mass_provisions": float(captured),
+					})
+				if rows:
+					db.bulk_insert_mappings(RelatednessFingerprint, rows)
+					db.commit()
+
+			logger.info(
+				"Relatedness data load complete: %d baseline rows, %d fingerprints.",
+				len(baseline_pi or {}),
+				len(fingerprints or {}),
+			)
+		except Exception as exc:
+			if db:
+				db.rollback()
+			logger.error("Error loading relatedness data: %s", exc)
+			logger.error(traceback.format_exc())
+			raise
+		finally:
+			if db:
+				try:
+					next(db_session_generator)
+				except StopIteration:
+					pass

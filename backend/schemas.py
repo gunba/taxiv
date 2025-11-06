@@ -84,3 +84,32 @@ class ExportMarkdownRequest(BaseModel):
 
 class ExportMarkdownResponse(BaseModel):
 	markdown: str
+
+
+class UnifiedSearchRequest(BaseModel):
+	query: str
+	k: int = 25
+	include_explanations: bool = True
+
+
+class WhyItem(BaseModel):
+	type: str
+	detail: str
+	weight: Optional[float] = None
+
+
+class UnifiedSearchResult(BaseModel):
+	id: str
+	ref_id: str
+	title: str
+	type: str
+	score_urs: int
+	why: List[WhyItem] = []
+	snippet: Optional[str] = None
+	metrics: Optional[dict] = None
+
+
+class UnifiedSearchResponse(BaseModel):
+	query_interpretation: dict
+	results: List[UnifiedSearchResult]
+	debug: Optional[dict] = None

@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 from backend import crud, schemas
 from backend.config import get_settings
 from backend.database import initialize_engine, Base, get_db
+from backend.schemas import UnifiedSearchRequest, UnifiedSearchResponse
 from backend.services.export_markdown import export_markdown_for_provision
+from backend.services.unified_search import unified_search as unified_search_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
@@ -125,12 +127,22 @@ def get_breadcrumbs(
 
 @app.post("/api/provisions/export_markdown", response_model=schemas.ExportMarkdownResponse)
 def export_markdown(request: schemas.ExportMarkdownRequest, db: Session = Depends(get_db)):
+        try:
+                markdown = export_markdown_for_provision(
+                        db,
+                        request.provision_internal_id,
+                        request.include_descendants,
+                )
+        except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        return schemas.ExportMarkdownResponse(markdown=markdown)
+
+
+@app.post("/api/search/unified", response_model=UnifiedSearchResponse)
+def unified_search_endpoint(request: UnifiedSearchRequest, db: Session = Depends(get_db)):
 	try:
-		markdown = export_markdown_for_provision(
-			db,
-			request.provision_internal_id,
-			request.include_descendants,
-		)
-	except ValueError as exc:
-		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-	return schemas.ExportMarkdownResponse(markdown=markdown)
+		payload = unified_search_service(db, request.query, request.k, request.include_explanations)
+		return payload
+	except Exception as exc:
+		logger.exception("Unified search failed")
+		raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))

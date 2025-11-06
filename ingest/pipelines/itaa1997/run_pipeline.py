@@ -13,6 +13,7 @@ from tqdm import tqdm
 # MODIFICATION: Import the module itself
 from ingest.core import llm_extraction
 from ingest.core.analysis import GraphAnalyzer, sanitize_for_ltree
+from ingest.core.relatedness_indexer import build_relatedness_index, RelatednessIndexerConfig
 from ingest.core.loading import DatabaseLoader
 from ingest.core.utils import recursive_finalize_structure
 # Import pipeline-specific modules
@@ -374,13 +375,26 @@ def run_analysis_and_loading(config: Config):
 
 	# --- Analysis and Loading ---
 	metrics = analyzer.analyze_graph_metrics()
-	payloads = analyzer.prepare_database_payload(metrics)
+	provisions_payload, references_payload, defined_terms_usage_payload = analyzer.prepare_database_payload(metrics)
 
 	try:
 		# Initialize the loader (connects to the DB defined in .env)
 		loader = DatabaseLoader(act_id=config.ACT_ID, act_title=ACT_TITLE)
 		# Load the data (Bulk insert)
-		loader.load_data(*payloads)
+		loader.load_data(provisions_payload, references_payload, defined_terms_usage_payload)
+		try:
+			logger.info("Computing relatedness index (baseline + fingerprints)...")
+			cfg = RelatednessIndexerConfig()
+			baseline_pi, fingerprints = build_relatedness_index(
+				provisions_payload,
+				references_payload,
+				defined_terms_usage_payload,
+				cfg
+			)
+			loader.load_relatedness_data(baseline_pi, fingerprints)
+		except Exception as relatedness_error:
+			logger.error(f"Relatedness indexing failed: {relatedness_error}")
+			logger.error(traceback.format_exc())
 	except Exception as e:
 		logger.error(f"Database loading failed: {e}")
 		logger.error(traceback.format_exc())
