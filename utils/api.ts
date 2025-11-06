@@ -52,5 +52,29 @@ export const api = {
     getBreadcrumbs: async (internalId: string): Promise<{ internal_id: string; title: string }[]> => {
         const response = await fetch(`${API_BASE_PATH}/provisions/breadcrumbs/${internalId}`);
         return handleResponse<{ internal_id: string; title: string }[]>(response);
+    },
+
+    exportMarkdown: async ({
+        internalId,
+        includeDescendants = false,
+        signal,
+    }: {
+        internalId: string;
+        includeDescendants?: boolean;
+        signal?: AbortSignal;
+    }): Promise<string> => {
+        const response = await fetch(`${API_BASE_PATH}/provisions/export_markdown`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                provision_internal_id: internalId,
+                include_descendants: includeDescendants,
+            }),
+            signal,
+        });
+        const result = await handleResponse<{ markdown: string }>(response);
+        return result.markdown;
     }
 };
