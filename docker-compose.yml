@@ -45,6 +45,26 @@ services:
       db:
         condition: service_healthy
 
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: taxiv_mcp
+    restart: no
+    env_file:
+      - .env
+    environment:
+      BACKEND_BASE_URL: http://backend:8000
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8765
+      ACT_ID_DEFAULT: ITAA1997
+      MCP_HTTP_TIMEOUT: 30
+    ports:
+      - "8765:8765"
+    depends_on:
+      backend:
+        condition: service_started
+
   # Frontend Service (React/Vite)
   frontend:
     build:
