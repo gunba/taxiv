@@ -80,3 +80,50 @@ This process may take time. Subsequent runs will be faster due to LLM caching (`
 
 The Docker Compose setup enables live reloading for both the frontend (Vite HMR) and the backend (Uvicorn reload).
 Changes made to the source code will be reflected automatically.
+
+## SideNav Markdown Export
+
+The SideNav includes contextual export controls that appear when you hover over or keyboard-focus a provision row. When
+the controls are visible you can:
+
+* **Copy** – Export only the selected provision.
+* **Copy all** – Export the provision and all of its descendants in the hierarchy.
+
+Each export opens a clipboard write request in the browser. Browsers require a user gesture (click or keyboard
+activation) to grant clipboard permissions. If the permission request is denied, Taxiv reports the fallback state and
+returns the generated markdown so the UI can offer a manual copy path (the default SideNav implementation surfaces an
+inline status message).
+
+### What the export contains
+
+The backend assembles a complete markdown bundle for the provision before sending it to the clipboard. The export
+contains:
+
+1. **Copied nodes** – The node you selected and, when `Copy all` is used, every descendant provision.
+2. **Referenced nodes** – Any provisions referenced by the copied set so cross-links resolve inline.
+3. **Definitions used** – Definitions pulled in transitively for any defined terms found in the copied or referenced
+   material.
+4. **Unresolved external references** – A trailing list of cross-references that could not be resolved to provision IDs,
+   including the snippet that triggered the reference when available.
+
+### Walkthrough and extension points
+
+1. Hover over a provision in the SideNav to reveal the copy buttons (or focus it with the keyboard and press `Tab`).
+2. Choose **Copy** or **Copy all**. A spinner replaces the label while the export is running.
+3. On success, a confirmation status appears beneath the node. If clipboard access is blocked, the status indicates the
+   fallback so you can provide a manual copy surface via the `onClipboardFallback` callback if desired.
+
+The export request is orchestrated in `utils/exportMarkdown.ts`, which handles clipboard permissions and provides hooks
+for additional UI feedback. To adjust the structure of the generated markdown itself, modify
+`backend/services/export_markdown.py`. Helper functions there (for example `_render_detail_block` and
+`_collect_unresolved_references`) are the extension points for adding new sections or changing formatting rules.
+
+### Troubleshooting
+
+* **Clipboard permission denied:** Confirm the page is loaded over HTTPS (or `localhost`) and that the user initiated the
+  export via a direct interaction. Browsers may require reloading the page after updating clipboard settings.
+* **Backend export endpoint unavailable:** The SideNav export calls the `POST /api/provisions/export_markdown` endpoint. Ensure the backend container is running
+  (`docker-compose ps`) and inspect the backend logs for errors (`docker-compose logs backend`).
+* **Export succeeds but references are missing:** Verify that referenced provisions exist in the database. If the
+  ingestion pipeline skipped source files, re-run `ingest.pipelines.itaa1997.run_pipeline` and confirm
+  `backend/services/export_markdown.py` includes the desired section.
