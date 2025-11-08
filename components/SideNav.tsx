@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {HierarchyNode} from '../types';
 import {api} from '../utils/api';
-import {ChevronRightIcon, SearchIcon} from './Icons';
+import {ChevronRightIcon, ClipboardIcon, SearchIcon} from './Icons';
 import {exportMarkdownToClipboard} from '../utils/exportMarkdown';
 
 type ExportAction = 'with-descendants';
@@ -228,7 +228,7 @@ export const NavNode: React.FC<NavNodeProps> = ({
                     }`}
                     style={{paddingLeft: indentPadding}}
                 >
-                    <div className="w-6 flex justify-center pt-1">
+                    <div className="w-6 flex justify-center self-start">
                         {showExpandControl ? (
                             <button
                                 onClick={toggleExpand}
@@ -265,7 +265,7 @@ export const NavNode: React.FC<NavNodeProps> = ({
                                 event.stopPropagation();
                                 void handleExport();
                             }}
-                            className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
                             aria-label={`Copy markdown for ${node.title} to clipboard`}
                             disabled={isPending}
                         >
@@ -275,7 +275,10 @@ export const NavNode: React.FC<NavNodeProps> = ({
                                     aria-hidden="true"
                                 />
                             ) : (
-                                <span>Copy to clipboard</span>
+                                <>
+                                    <ClipboardIcon className="w-4 h-4" aria-hidden="true"/>
+                                    <span className="sr-only">Copy to clipboard</span>
+                                </>
                             )}
                         </button>
                     </div>
