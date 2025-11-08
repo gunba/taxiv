@@ -265,8 +265,7 @@ def unified_search(db: Session, query: str, k: int = 25, include_explanations: b
 				if idx >= 0:
 					start = max(0, idx - 60)
 					end = min(len(row.content_md), idx + 120)
-					snippet = row.content_md[start:end].replace('
-', ' ').strip()
+					snippet = row.content_md[start:end].replace('\n', ' ').strip()
 
 		results.append({
 			"id": prov_id,

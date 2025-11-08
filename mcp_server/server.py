@@ -6,6 +6,8 @@ All tool outputs default to **markdown**. JSON output is available via `format="
 """
 
 from __future__ import annotations
+import asyncio
+import atexit
 import os
 import json
 import textwrap
@@ -152,9 +154,24 @@ def create_server() -> FastMCP:
 	mcp = FastMCP(name="Taxiv MCP", instructions=INSTRUCTIONS)
 	be = Backend(BACKEND_BASE_URL, timeout=REQUEST_TIMEOUT)
 
-	@mcp.on_shutdown
-	async def _shutdown():
-		await be.close()
+	if hasattr(mcp, "on_shutdown"):
+		@mcp.on_shutdown
+		async def _shutdown():
+			await be.close()
+	else:
+		def _sync_shutdown():
+			if getattr(be.client, "is_closed", False):
+				return
+			try:
+				asyncio.run(be.close())
+			except RuntimeError:
+				loop = asyncio.new_event_loop()
+				try:
+					loop.run_until_complete(be.close())
+				finally:
+					loop.close()
+
+		atexit.register(_sync_shutdown)
 
 	@mcp.tool()
 	async def help() -> str:

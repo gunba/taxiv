@@ -24,11 +24,13 @@ High-level design of the solution, including affected components and data flows.
     1. [Detailed step]
     2. [Detailed step]
 
-### Phase 2: [Phase Title]
+### Phase 2 (if necessary): [Phase Title]
 
 * **Goal:**
 * **Steps:**
     1. [Detailed step]
+    
+...
 
 ## 5. Testing Strategy
 
@@ -41,3 +43,7 @@ Potential challenges and how they will be addressed.
 ## 7. Success Metrics
 
 Definition of done.
+
+## 8. Queries
+
+Any questions to ask the user if any aspect of the task is unclear.
