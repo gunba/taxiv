@@ -35,5 +35,4 @@ dist-ssr
 /ingest/output/
 /ingest/output/intermediate/
 /ingest/output/final/
-ingest/cache/llm_cache.db
 *.db
