@@ -19,8 +19,10 @@ IMAGE_PATTERN = re.compile(r"!\[(?P<alt>[^\]]*)\]\([^\)]+\)")
 def canonical_node_heading(detail: ProvisionDetail) -> str:
 	"""Generate a canonical heading for a provision node."""
 	title = detail.title.strip()
+	if title:
+		return title
 	ref = detail.ref_id.strip() if detail.ref_id else ""
-	return f"{title} ({ref})" if ref else title
+	return ref
 
 
 def normalize_markdown_content(content: Optional[str]) -> str:

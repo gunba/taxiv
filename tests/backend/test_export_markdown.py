@@ -197,17 +197,17 @@ def test_export_markdown_service_collects_related_data(monkeypatch):
 	markdown = export_service.export_markdown_for_provision(fake_db, "root", include_descendants=True)
 
 	assert "## Copied nodes" in markdown
-	assert "### Root Node (ACT-1)" in markdown
-	assert "### Child Node (ACT-1.1)" in markdown
+	assert "### Root Node" in markdown
+	assert "### Child Node" in markdown
 	assert "## Referenced nodes" in markdown
-	assert "### Referenced Node (ACT-99)" in markdown
+	assert "### Referenced Node" in markdown
 	assert "## Definitions used" in markdown
-	assert "### Definition One (DEF-1)" in markdown
-	assert "### Definition Two (DEF-2)" in markdown
-	assert markdown.count("### Definition Reference (ACT-200)") == 1
+	assert "### Definition One" in markdown
+	assert "### Definition Two" in markdown
+	assert markdown.count("### Definition Reference") == 1
 	assert "```" in markdown
-	assert "### Definition Reference (ACT-200)" not in markdown.split("## Referenced nodes")[1].split("## Definitions used")[0]
-	assert "```\n### Definition Reference (ACT-200)\n\nDefinition reference content\n```" in markdown
+	assert "### Definition Reference" not in markdown.split("## Referenced nodes")[1].split("## Definitions used")[0]
+	assert "```\n### Definition Reference\n\nDefinition reference content\n```" in markdown
 	assert "## Unresolved external references" in markdown
 	assert "- EXT-1 (from ACT-1) — external context" in markdown
 	assert "![Diagram]" not in markdown
