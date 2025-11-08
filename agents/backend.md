@@ -10,6 +10,7 @@
 * **Data Validation:** Pydantic (via FastAPI and Pydantic Settings)
 * **Data Processing/Analysis:** NetworkX (for graph analysis), python-docx (for ingestion)
 * **LLM Integration:** google-generativeai (Gemini)
+* **Semantic Embeddings:** sentence-transformers (default model `all-MiniLM-L6-v2`) for relatedness graph kNN
 * **Environment Management:** Docker, Docker Compose, pip/requirements.txt
 
 ## Directory Structure

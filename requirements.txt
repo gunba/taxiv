@@ -12,6 +12,7 @@ sqlalchemy-utils
 networkx
 numpy
 scipy
+sentence-transformers
 
 # Document Parsing & Ingestion
 python-docx
