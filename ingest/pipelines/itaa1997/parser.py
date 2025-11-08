@@ -23,6 +23,7 @@ except ImportError:
 
 # Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
 from .config import Config
+from ingest.core.media import convert_metafile_to_png, detect_metafile_format
 from ingest.core.utils import iter_block_items, get_indentation
 # Import LLM tools needed for the finalization callback
 # We import these here to ensure they are available when finalize_section is called
@@ -42,7 +43,27 @@ CURRENT_MEDIA_CONTEXT: Dict[str, Any] = {}
 _RENDERABLE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
 
-def _convert_blob_to_png(blob: bytes) -> Optional[bytes]:
+def _convert_blob_to_png(
+	blob: bytes,
+	*,
+	source_extension: Optional[str] = None,
+	content_type: Optional[str] = None,
+) -> Optional[bytes]:
+	format_hint = detect_metafile_format(
+		blob,
+		source_extension=source_extension,
+		content_type=content_type,
+	)
+	if format_hint:
+		outcome = convert_metafile_to_png(blob, format_hint)
+		if outcome.png_bytes is not None:
+			return outcome.png_bytes
+		if outcome.messages:
+			unique_messages = "; ".join(dict.fromkeys(outcome.messages))
+			print(
+				"Warning: vector metafile conversion attempts failed "
+				f"({unique_messages}). Falling back to Pillow."
+			)
 	try:
 		with Image.open(BytesIO(blob)) as image:
 			mode = image.mode or ""
@@ -116,7 +137,11 @@ def _persist_image_blob(blob: bytes, partname: str, content_type: str) -> Option
 		subtype = content_type.split('/')[-1].lower()
 		if subtype:
 			original_extension = f".{subtype}"
-	converted_blob = _convert_blob_to_png(blob)
+	converted_blob = _convert_blob_to_png(
+		blob,
+		source_extension=original_extension,
+		content_type=content_type,
+	)
 	stored_blob = converted_blob if converted_blob is not None else blob
 	stored_extension = ".png" if converted_blob is not None else (original_extension or ".bin")
 	digest = hashlib.sha1(stored_blob).hexdigest()
