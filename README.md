@@ -71,7 +71,8 @@ docker-compose exec backend python -m ingest.pipelines.itaa1997.run_pipeline
 
 > **Linux WMF/EMF note:** The ingestion pipeline now rasterizes Windows Metafile assets on Linux. Install
 > `imagemagick`, `libwmf-bin`, and `librsvg2-bin` (or equivalent packages for your distribution) inside the backend
-> environment so WMF/EMF images can be converted to PNG during parsing.
+> environment so WMF/EMF images can be converted to PNG during parsing. The default `Dockerfile.backend` now installs
+> these packages automatically; add them manually only if you run the ingestion pipeline outside that container.
 
 This process may take time. Subsequent runs will be faster due to LLM caching (`ingest/cache/llm_cache.db`).
 

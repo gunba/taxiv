@@ -13,6 +13,12 @@
 * **Semantic Embeddings:** sentence-transformers (default model `all-MiniLM-L6-v2`) for relatedness graph kNN
 * **Environment Management:** Docker, Docker Compose, pip/requirements.txt
 
+### System Dependencies
+
+The ingestion pipeline rasterizes WMF/EMF assets on Linux. The backend container must include `imagemagick`,
+`libwmf-bin`, and `librsvg2-bin` (installed in `Dockerfile.backend`). If you run ingestion outside Docker, install the
+equivalent packages on your host first so WMF/EMF assets can be converted to PNG.
+
 ## Directory Structure
 
 ```
