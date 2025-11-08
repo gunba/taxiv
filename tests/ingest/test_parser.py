@@ -236,6 +236,49 @@ def test_persist_image_blob_converts_to_png(tmp_path, monkeypatch):
 	parser._clear_media_context()
 
 
+def test_initialize_media_context_clears_previous_media(tmp_path, monkeypatch):
+	media_root = tmp_path / 'media_root'
+	doc_name = 'sample.docx'
+	doc_basename = parser._sanitize_media_segment(Path(doc_name).stem)
+	act_segment = parser._sanitize_media_segment(parser.config.ACT_ID.lower())
+	target_dir = media_root / act_segment / doc_basename
+	target_dir.mkdir(parents=True)
+	stale_file = target_dir / 'old.png'
+	stale_file.write_text('old')
+
+	monkeypatch.setattr(parser.config, 'MEDIA_ROOT', str(media_root))
+	parser._initialize_media_context(doc_name)
+
+	assert not stale_file.exists()
+	assert Path(parser.CURRENT_MEDIA_CONTEXT['absolute_dir']).exists()
+
+
+def test_persist_image_blob_reuses_digest_for_same_blob(tmp_path, monkeypatch):
+	call_counts = {'value': 0}
+
+	def fake_convert(blob, *, source_extension=None, content_type=None):
+		call_counts['value'] += 1
+		return b'first-run' if call_counts['value'] == 1 else b'second-run'
+
+	monkeypatch.setattr(parser, '_convert_blob_to_png', fake_convert)
+	_prime_media_context(tmp_path, monkeypatch)
+
+	blob = b'metafile-bytes'
+	record_first = parser._persist_image_blob(blob, 'word/media/vector.emf', 'image/x-emf')
+	first_path = Path(record_first['absolute_path'])
+	assert first_path.read_bytes() == b'first-run'
+
+	parser._clear_media_context()
+	_prime_media_context(tmp_path, monkeypatch)
+	record_second = parser._persist_image_blob(blob, 'word/media/vector.emf', 'image/x-emf')
+	second_path = Path(record_second['absolute_path'])
+
+	assert record_first['relative_path'] == record_second['relative_path']
+	assert second_path.read_bytes() == b'second-run'
+
+	parser._clear_media_context()
+
+
 def test_get_image_alt_text_returns_markdown_without_description(tmp_path, monkeypatch):
 	_prime_media_context(tmp_path, monkeypatch)
 

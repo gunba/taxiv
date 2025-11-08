@@ -36,6 +36,7 @@ def initialize_engine(max_retries=5, delay=5):
 			# Test connection and enable extensions
 			with engine.connect() as connection:
 				connection.execute(text("CREATE EXTENSION IF NOT EXISTS ltree;"))
+				connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
 				connection.commit()
 
 			logger.info("Database connection successful and 'ltree' extension ensured.")

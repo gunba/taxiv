@@ -16,6 +16,12 @@ export default defineConfig(() => ({
                 changeOrigin: true,
                 secure: false,
                 // The backend expects the /api prefix.
+            },
+            // Serve ingestion assets directly from FastAPI
+            '/media': {
+                target: 'http://backend:8000',
+                changeOrigin: true,
+                secure: false,
             }
         }
     },

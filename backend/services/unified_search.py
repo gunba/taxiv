@@ -13,8 +13,8 @@ from backend.models.legislation import (
 	DefinedTermUsage,
 	Provision,
 	Reference,
-	RelatednessFingerprint,
 )
+from backend.services.relatedness_engine import get_or_compute_and_cache
 
 RE_SECTION = re.compile(r"\b(?:s|sect|section)\s*([0-9]+[A-Z]*-[0-9A-Z]+|[0-9]+[A-Z]*)\b", re.IGNORECASE)
 RE_DIV = re.compile(r"\bdiv(?:ision)?\s*([0-9]+[A-Z]?)\b", re.IGNORECASE)
@@ -86,20 +86,7 @@ def parse_query(db: Session, query: str) -> dict:
 
 
 def load_fingerprint(db: Session, provision_id: str) -> Tuple[List[Tuple[str, float]], float]:
-	row = db.query(RelatednessFingerprint).filter(
-		RelatednessFingerprint.source_kind == "provision",
-		RelatednessFingerprint.source_id == provision_id,
-	).first()
-	if not row:
-		return [], 0.0
-	neighbors: List[Tuple[str, float]] = []
-	for neighbor in row.neighbors or []:
-		prov_id = neighbor.get("prov_id")
-		if not prov_id:
-			continue
-		mass = float(neighbor.get("ppr_mass", 0.0))
-		neighbors.append((prov_id, mass))
-	return neighbors, float(row.captured_mass_provisions or 0.0)
+	return get_or_compute_and_cache(db, provision_id)
 
 
 def urs_from_log2(log2_lift: float) -> int:

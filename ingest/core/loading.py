@@ -20,6 +20,7 @@ try:
 		BaselinePagerank,
 		RelatednessFingerprint,
 	)
+	from backend.models.semantic import Embedding
 except ImportError as e:
 	logging.error(
 		f"Failed to import backend modules. Ensure the environment is set up correctly (e.g., running inside Docker container). Error: {e}")
@@ -47,6 +48,9 @@ except ImportError as e:
 
 
 	class RelatednessFingerprint:
+		pass
+
+	class Embedding:
 		pass
 
 
@@ -218,6 +222,19 @@ class DatabaseLoader:
 				provision_ids_subquery = db.query(Provision.internal_id).filter(
 					Provision.act_id == self.act_id).subquery()
 
+				# Clear dependent tables that reference provisions (FK-safe order)
+				deleted_baseline = db.query(BaselinePagerank).filter(
+					BaselinePagerank.provision_id.in_(provision_ids_subquery)
+				).delete(synchronize_session=False)
+				deleted_fingerprints = db.query(RelatednessFingerprint).filter(
+					RelatednessFingerprint.source_kind == "provision",
+					RelatednessFingerprint.source_id.in_(provision_ids_subquery),
+				).delete(synchronize_session=False)
+				deleted_embeddings = db.query(Embedding).filter(
+					Embedding.entity_kind == "provision",
+					Embedding.entity_id.in_(provision_ids_subquery),
+				).delete(synchronize_session=False)
+
 				# Delete related data first due to foreign key constraints
 				# Note: We only delete references originating FROM this act. References pointing TO this act from others remain.
 
@@ -234,7 +251,10 @@ class DatabaseLoader:
 				# Commit the deletions
 				db.commit()
 				logger.info(
-					f"Cleanup complete. Deleted {deleted_count} provisions, {deleted_refs} references, {deleted_terms} term usages.")
+					f"Cleanup complete. Deleted {deleted_count} provisions, {deleted_refs} references, "
+					f"{deleted_terms} term usages, {deleted_baseline} baseline rows, "
+					f"{deleted_fingerprints} fingerprints, and {deleted_embeddings} embeddings."
+				)
 
 			# 2. Bulk Insert Provisions
 			logger.info("Bulk inserting provisions...")

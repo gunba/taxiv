@@ -1,8 +1,10 @@
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 
 from ingest.core import media
+from PIL import Image, ImageDraw
 
 
 class DummyCompletedProcess:
@@ -49,3 +51,37 @@ def test_convert_metafile_to_png_collects_errors(monkeypatch: pytest.MonkeyPatch
     outcome = media.convert_metafile_to_png(b"blob", "emf")
     assert outcome.png_bytes is None
     assert any("ImageMagick" in message for message in outcome.messages)
+
+
+def test_convert_metafile_to_png_trims_full_page_canvas(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_find() -> tuple[str, ...]:
+        return ("convert",)
+
+    def fake_run(*args, **kwargs):
+        output_path = args[0][-1]
+        image = Image.new("RGB", (595, 842), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((100, 100, 200, 200), fill="black")
+        image.save(output_path, format="PNG")
+        return DummyCompletedProcess()
+
+    monkeypatch.setattr(media, "_find_imagemagick_executable", fake_find)
+    monkeypatch.setattr(media.subprocess, "run", fake_run)
+
+    outcome = media.convert_metafile_to_png(b"blob", "wmf")
+    assert outcome.messages == []
+    with Image.open(BytesIO(outcome.png_bytes)) as converted:
+        assert converted.size[0] < 595
+        assert converted.size[1] < 842
+
+
+def test_trim_png_canvas_skips_minor_differences() -> None:
+    image = Image.new("RGB", (100, 100), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((2, 2, 95, 95), outline="black")
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    original = buffer.getvalue()
+
+    trimmed = media._trim_png_canvas(original)
+    assert trimmed == original

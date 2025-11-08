@@ -13,8 +13,8 @@ The project is structured as a multi-service application managed by Docker Compo
 
 * **Frontend (React/Vite):** A dynamic interface for navigating the tax code hierarchy.
 * **Backend (FastAPI):** Serves the legislation data and handles API requests.
-* **Database (PostgreSQL):** Stores the structured legislation, utilizing the `ltree` extension for efficient hierarchy
-  management.
+* **Database (PostgreSQL):** Stores the structured legislation, utilizing the `ltree` + `pgvector` extensions (the custom
+  `Dockerfile.db` installs `postgresql-16-pgvector` so ANN search is available out of the box).
 * **Ingestion (Python/Gemini):** A modular pipeline located in the `ingest/` directory for processing raw legislation
   documents.
 
@@ -33,7 +33,7 @@ The project is structured as a multi-service application managed by Docker Compo
 
 ### 2. Start the Infrastructure
 
-From the project root, build and start the containers:
+From the project root, build and start the containers (this compiles the custom Postgres image with `pgvector` support):
 
 ```bash
 docker-compose up --build -d

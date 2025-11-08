@@ -1,6 +1,7 @@
-from sqlalchemy import Column, String, Integer, Text, Float, Index, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Text, Float, Index, ForeignKey, UniqueConstraint, DateTime
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, backref
+from sqlalchemy.sql import func
 from sqlalchemy_utils import LtreeType as LTREE
 
 from backend.database import Base
@@ -117,3 +118,5 @@ class RelatednessFingerprint(Base):
 	source_id = Column(String(255), primary_key=True, index=True)
 	neighbors = Column(JSONB, nullable=False)
 	captured_mass_provisions = Column(Float, nullable=False)
+	graph_version = Column(Integer, nullable=False, default=1)
+	updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

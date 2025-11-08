@@ -38,6 +38,8 @@
       fetched only when a parent is expanded.
 * **API Proxy:** Vite is configured (`vite.config.ts`) to proxy requests from `/api` to the backend container (
   `http://backend:8000`). This avoids CORS issues in development.
+* **Media Proxy:** Static ingestion assets under `/media/...` are also forwarded to the backend so embedded diagrams
+  load while running the Vite dev server.
 * **TypeScript:** All code must be strongly typed. Avoid `any`. Interfaces in `types.ts` must align with the backend
   Pydantic schemas.
 

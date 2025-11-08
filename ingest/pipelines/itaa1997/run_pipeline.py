@@ -8,13 +8,19 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ingest.core.progress import progress_bar, progress_write
+from backend.database import get_db
+from backend.models.semantic import bump_graph_version
 
 # Import core modules
 # MODIFICATION: Import the module itself
 from ingest.core import llm_extraction
 from ingest.core.analysis import GraphAnalyzer, sanitize_for_ltree
 from ingest.core.loading import DatabaseLoader
-from ingest.core.relatedness_indexer import build_relatedness_index, RelatednessIndexerConfig
+from ingest.core.relatedness_indexer import (
+	build_relatedness_index,
+	RelatednessIndexerConfig,
+	upsert_provision_embeddings,
+)
 from ingest.core.utils import recursive_finalize_structure
 # Import pipeline-specific modules
 # We import the functions and global state variables from the parser module as adapted in Phase 1.
@@ -401,9 +407,19 @@ def run_analysis_and_loading(config: Config):
 		loader = DatabaseLoader(act_id=config.ACT_ID, act_title=ACT_TITLE)
 		# Load the data (Bulk insert)
 		loader.load_data(provisions_payload, references_payload, defined_terms_usage_payload)
+		cfg = RelatednessIndexerConfig()
 		try:
-			logger.info("Computing relatedness index (baseline + fingerprints)...")
-			cfg = RelatednessIndexerConfig()
+			logger.info("Upserting provision embeddings into pgvector...")
+			upsert_provision_embeddings(
+				provisions_payload,
+				model_name=cfg.embedding_model_name,
+				batch_size=cfg.embedding_batch_size,
+				max_text_chars=cfg.max_text_chars,
+			)
+		except Exception as embed_error:
+			logger.error(f"Embedding upsert failed: {embed_error}")
+		try:
+			logger.info("Computing relatedness baseline (fingerprints computed lazily)...")
 			baseline_pi, fingerprints = build_relatedness_index(
 				provisions_payload,
 				references_payload,
@@ -411,6 +427,20 @@ def run_analysis_and_loading(config: Config):
 				cfg
 			)
 			loader.load_relatedness_data(baseline_pi, fingerprints)
+			db_gen = None
+			try:
+				db_gen = get_db()
+				db = next(db_gen)
+				new_version = bump_graph_version(db)
+				logger.info("Graph version bumped to %d.", new_version)
+			except Exception as version_error:
+				logger.error(f"Failed to bump graph version: {version_error}")
+			finally:
+				if db_gen:
+					try:
+						next(db_gen)
+					except StopIteration:
+						pass
 		except Exception as relatedness_error:
 			logger.error(f"Relatedness indexing failed: {relatedness_error}")
 			logger.error(traceback.format_exc())

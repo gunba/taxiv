@@ -3,7 +3,9 @@ version: '3.8'
 services:
   # Database Service (PostgreSQL)
   db:
-    image: postgres:15-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.db
     container_name: taxiv_db
     restart: no
     env_file:

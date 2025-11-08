@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from typing import Dict, List, Tuple, Set
 
 import math
@@ -20,6 +20,10 @@ try:
 except Exception:
 	SentenceTransformer = None
 
+from sqlalchemy.orm import Session
+
+from backend.database import get_db
+from backend.models.semantic import Embedding
 from ingest.core.progress import progress_bar, progress_enabled
 
 # Types
@@ -34,23 +38,13 @@ class RelatednessIndexerConfig:
 	alpha_hierarchy: float = 0.20
 	alpha_term: float = 0.20
 
-	# --- NEW: semantic view knobs ---
-	alpha_semantic: float = 0.15  # weight of semantic edges in the multiplex
-	semantic_k: int = 80  # k-NN edges per node
-	semantic_min_cos: float = 0.35  # cosine threshold to suppress weak neighbors
-
 	# Embedding/runtime controls
 	embedding_model_name: str = os.getenv(
 		"RELATEDNESS_EMBED_MODEL",
 		"sentence-transformers/all-MiniLM-L6-v2"
 	)
 	embedding_batch_size: int = int(os.getenv("RELATEDNESS_EMBED_BATCH", "64"))
-	knn_batch_size: int = int(os.getenv("RELATEDNESS_KNN_BATCH", "1024"))
 	max_text_chars: int = int(os.getenv("RELATEDNESS_MAX_TEXT_CHARS", "4000"))
-
-	# PPR controls
-	top_k: int = 200
-	eps: float = 1e-6
 
 	# Hierarchy weights
 	w_parent_child: float = 1.0
@@ -105,48 +99,7 @@ def _power_iteration_pagerank(
 	return {n: r[idx[n]] for n in nodes}
 
 
-def _approximate_ppr_push(
-		adj_norm: Dict[ProvisionId, List[Tuple[ProvisionId, float]]],
-		seed: ProvisionId,
-		gamma: float,
-		eps: float,
-		top_k: int
-) -> Tuple[List[Tuple[ProvisionId, float]], float]:
-	"""
-	Andersen-Chung-Lang push (simplified).
-	Residual r starts at seed=1. Push alpha*r[u] to ppr[u], distribute gamma*r[u] to neighbors.
-	"""
-	alpha = 1.0 - gamma
-	ppr = defaultdict(float)
-	r = defaultdict(float)
-	r[seed] = 1.0
-	q = deque([seed])
-
-	while q:
-		u = q.popleft()
-		ru = r[u]
-		if ru < eps:
-			continue
-		ppr[u] += alpha * ru
-		push = gamma * ru
-		r[u] = 0.0
-		nbrs = adj_norm.get(u, [(u, 1.0)])
-		for v, prob in nbrs:
-			inc = push * prob
-			if inc < eps:
-				continue
-			prev = r[v]
-			newv = prev + inc
-			r[v] = newv
-			if prev < eps and newv >= eps:
-				q.append(v)
-
-	items = sorted(ppr.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
-	captured = sum(v for _, v in items)
-	return items, captured
-
-
-# ----------------- NEW: semantic helpers -----------------
+# ----------------- Embedding helpers -----------------
 
 def _prep_text_for_embedding(p: dict, max_chars: int) -> str:
 	title = (p.get("title") or "").strip()
@@ -157,87 +110,68 @@ def _prep_text_for_embedding(p: dict, max_chars: int) -> str:
 	return txt
 
 
-def _compute_embeddings(
+# ----------------- end embedding helpers -----------------
+
+
+def upsert_provision_embeddings(
 		provisions_payload: List[dict],
-		cfg: RelatednessIndexerConfig
-) -> Tuple[List[ProvisionId] | None, "np.ndarray | None"]:
-	"""
-	Returns (ids, embeddings) or (None, None) if deps unavailable.
-	Embeddings are L2-normalized so dot == cosine.
-	"""
+		model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+		batch_size: int = 64,
+		max_text_chars: int = 4000,
+):
+	"""Compute embeddings for new/updated provisions and upsert into pgvector."""
 	if SentenceTransformer is None or np is None:
-		logger.warning("Semantic view disabled: sentence-transformers or numpy not available.")
-		return None, None
+		logger.warning("Embedding model not available. Skipping embeddings upsert.")
+		return
 
-	ids = [p["internal_id"] for p in provisions_payload]
-	texts = [_prep_text_for_embedding(p, cfg.max_text_chars) for p in provisions_payload]
+	provision_ids = [p["internal_id"] for p in provisions_payload]
+	texts = [_prep_text_for_embedding(p, max_text_chars) for p in provisions_payload]
 
-	logger.info(f"Loading embedding model: {cfg.embedding_model_name}")
-	model = SentenceTransformer(cfg.embedding_model_name)
-	emb = model.encode(
+	logger.info("Encoding %d provisions with %s", len(provision_ids), model_name)
+	model = SentenceTransformer(model_name)
+	vectors = model.encode(
 		texts,
-		batch_size=cfg.embedding_batch_size,
-		normalize_embeddings=True,  # ensures cosine = dot
-		show_progress_bar=progress_enabled()
+		batch_size=batch_size,
+		normalize_embeddings=True,
+		show_progress_bar=progress_enabled(),
 	)
-	emb = np.asarray(emb, dtype=np.float32)
-	return ids, emb
 
+	db_gen = get_db()
+	try:
+		db: Session = next(db_gen)
+	except StopIteration:
+		logger.error("Unable to establish database session for embedding upsert.")
+		return
 
-def _build_semantic_knn(
-		ids: List[ProvisionId],
-		emb: "np.ndarray",
-		k: int,
-		min_cos: float,
-		batch: int
-) -> Dict[ProvisionId, Dict[ProvisionId, float]]:
-	"""
-	Builds a sparse, symmetric k-NN graph using cosine similarity on normalized embeddings.
-	We linearly rescale weights from [min_cos, 1] to [0, 1].
-	"""
-	A_sem = defaultdict(lambda: defaultdict(float))
-	if np is None:
-		return A_sem
+	try:
+		if provision_ids:
+			deleted = db.query(Embedding).filter(
+				Embedding.entity_kind == "provision",
+				Embedding.model == model_name,
+				Embedding.entity_id.in_(provision_ids),
+			).delete(synchronize_session=False)
+			logger.info("Removed %d existing embeddings for refresh.", deleted)
 
-	N = len(ids)
-	k_eff = max(1, min(k, max(1, N - 1)))
-	pbar_batches = progress_bar(
-		range(0, N, batch),
-		desc="Building semantic kNN",
-		unit="batch",
-		leave=False
-	)
-	for i in pbar_batches:
-		X = emb[i:i + batch]  # shape (b, d), already normalized
-		sims = np.matmul(X, emb.T)  # (b, N), cosine scores in [-1, 1]
-		for bi in range(sims.shape[0]):
-			u_index = i + bi
-			row = sims[bi]
-			# exclude self
-			row[u_index] = -1.0
-			# get top-k candidates
-			idxs = np.argpartition(-row, k_eff)[:k_eff]
-			idxs = idxs[np.argsort(-row[idxs])]
-			u = ids[u_index]
-			for j in idxs:
-				s = float(row[j])
-				if s < min_cos:
-					continue
-				v = ids[j]
-				if v == u:
-					continue
-				# rescale to [0,1]
-				w = max(0.0, min(1.0, (s - min_cos) / (1.0 - min_cos)))
-				# undirected (symmetric)
-				if w > A_sem[u].get(v, 0.0):
-					A_sem[u][v] = w
-					A_sem[v][u] = w
-	if hasattr(pbar_batches, "close"):
-		pbar_batches.close()
-	return A_sem
-
-
-# ----------------- end semantic helpers -----------------
+		for pid, vec in zip(provision_ids, vectors):
+			db.merge(Embedding(
+				entity_kind="provision",
+				entity_id=pid,
+				model=model_name,
+				dim=len(vec),
+				vector=np.asarray(vec, dtype=np.float32),
+				l2_norm=1.0,
+			))
+		db.commit()
+		logger.info("Provision embeddings upsert complete.")
+	except Exception as exc:
+		db.rollback()
+		logger.error("Failed to upsert embeddings: %s", exc)
+		raise
+	finally:
+		try:
+			next(db_gen)
+		except StopIteration:
+			pass
 
 
 def build_relatedness_index(
@@ -321,23 +255,12 @@ def build_relatedness_index(
 				A_t[ui][vj] += idf
 				A_t[vj][ui] += idf
 
-	# --- NEW: Semantic view (A_sem) via embeddings + kNN ---
-	A_sem = defaultdict(lambda: defaultdict(float))
-	ids, emb = _compute_embeddings(provisions_payload, cfg)
-	if ids and emb is not None and cfg.alpha_semantic > 0.0:
-		A_sem = _build_semantic_knn(ids, emb, cfg.semantic_k, cfg.semantic_min_cos, cfg.knn_batch_size)
-		logger.info("Semantic view: built ~%d undirected edges.",
-					sum(len(v) for v in A_sem.values()) // 2)
-	else:
-		logger.info("Semantic view unavailable or disabled; proceeding without it.")
-
 	# 3) Aggregate & row-normalize
 	A_raw = defaultdict(lambda: defaultdict(float))
 	for u in prov_ids:
 		for v, w in A_cit[u].items(): A_raw[u][v] += cfg.alpha_citation * w
 		for v, w in A_h[u].items():   A_raw[u][v] += cfg.alpha_hierarchy * w
 		for v, w in A_t[u].items():   A_raw[u][v] += cfg.alpha_term * w
-		for v, w in A_sem[u].items(): A_raw[u][v] += cfg.alpha_semantic * w
 		if not A_raw[u]:
 			A_raw[u][u] += 1.0
 
@@ -356,49 +279,6 @@ def build_relatedness_index(
 		time.perf_counter() - baseline_start,
 	)
 
-	# 5) Fingerprints (per provision seed)
-	fingerprints = {}
-	fp_total = len(prov_ids)
-	logger.info(
-		"Starting relatedness fingerprints for %d provisions (eps=%.1e, top_k=%d)",
-		fp_total,
-		cfg.eps,
-		cfg.top_k,
-	)
-	fp_start = time.perf_counter()
-	pbar_fingerprints = progress_bar(
-		prov_ids,
-		desc="Computing relatedness fingerprints",
-		unit="prov",
-		total=fp_total,
-		leave=True
-	)
-	log_interval = max(1, fp_total // 100)
-	if fp_total >= 5000:
-		log_interval = max(log_interval, 500)
-	processed = 0
-	for seed in pbar_fingerprints:
-		top_list, captured = _approximate_ppr_push(A_norm, seed, cfg.gamma, cfg.eps, cfg.top_k)
-		neighbors = [{"prov_id": vid, "ppr_mass": float(m)} for vid, m in top_list]
-		fingerprints[seed] = (neighbors, float(captured))
-		processed += 1
-		if processed % log_interval == 0 or processed == fp_total:
-			elapsed = time.perf_counter() - fp_start
-			percent = (processed / fp_total) * 100 if fp_total else 100.0
-			avg = elapsed / processed if processed else 0.0
-			logger.info(
-				"Relatedness fingerprints: %d/%d (%.1f%%) processed in %.1fs (avg %.3fs/seed)",
-				processed,
-				fp_total,
-				percent,
-				elapsed,
-				avg,
-			)
-	if hasattr(pbar_fingerprints, "close"):
-		pbar_fingerprints.close()
-	logger.info(
-		"Completed relatedness fingerprints in %.2f seconds.",
-		time.perf_counter() - fp_start,
-	)
-
-	return baseline_pi, fingerprints
+	# 5) Fingerprints now computed on-demand
+	logger.info("Skipping global fingerprint precompute; handled lazily at query time.")
+	return baseline_pi, {}

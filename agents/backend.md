@@ -5,12 +5,12 @@
 * **Language:** Python 3.11+
 * **Framework:** FastAPI
 * **Server:** Uvicorn
-* **Database:** PostgreSQL (with LTree extension)
+* **Database:** PostgreSQL (with LTree + pgvector extensions)
 * **ORM:** SQLAlchemy 2.0+
 * **Data Validation:** Pydantic (via FastAPI and Pydantic Settings)
 * **Data Processing/Analysis:** NetworkX (for graph analysis), python-docx (for ingestion)
 * **LLM Integration:** google-generativeai (Gemini)
-* **Semantic Embeddings:** sentence-transformers (default model `all-MiniLM-L6-v2`) for relatedness graph kNN
+* **Semantic Embeddings:** sentence-transformers (default model `all-MiniLM-L6-v2`) persisted in pgvector for ANN lookup
 * **Environment Management:** Docker, Docker Compose, pip/requirements.txt
 
 ### System Dependencies
@@ -19,7 +19,11 @@ The ingestion pipeline rasterizes WMF/EMF assets on Linux. The backend container
 `libreoffice-draw`, `ghostscript`, `libwmf-bin`, `librsvg2-bin`, and at least one TrueType font package (we ship
 `fonts-dejavu-core`) installed in `Dockerfile.backend`. ImageMagick shells out to LibreOffice Draw to produce PDFs,
 Ghostscript rasterizes those PDFs, and libwmf/rsvg handle the SVG fallback path. If you run ingestion outside Docker,
-install the equivalent packages on your host first so WMF/EMF assets can be converted to PNG.
+install the equivalent packages on your host first so WMF/EMF assets can be converted to PNG. The Postgres service is
+built from `Dockerfile.db`, which installs `postgresql-16-pgvector` so ANN queries are guaranteed to work without manual
+extension management. If the container exits with `database files are incompatible with server` immediately after a
+version bump, delete the `taxiv_postgres_data` Docker volume so PostgreSQL can reinitialize with the correct major
+version.
 
 ## Directory Structure
 
@@ -51,11 +55,26 @@ ingest/
            Output is intermediate JSON.
         2. **Phase B (Analysis & Loading):** Intermediate JSON is analyzed (graph analysis, LTree calculation, reference
            normalization) and bulk loaded into PostgreSQL.
+* Media extraction now wipes the act/document media directory at the start of parsing and derives PNG filenames from
+  the source metafile bytes (not the rasterized output) so reruns regenerate assets without producing duplicate PNGs.
+* WMF/EMF rasterization output is auto-trimmed after conversion so the stored PNGs do not retain the blank 595x842 PDF
+  canvas that libreoffice/ghostscript introduces.
+    * Phase B reruns now clear act-scoped `baseline_pagerank`, `relatedness_fingerprint`, and pgvector embeddings before deleting provisions, so rerunning the loader is safe and won’t hit FK/unique violations.
     * LLM interactions MUST use `ingest/core/llm_extraction.py` to utilize the cache.
     * Progress reporting across ingestion phases is handled via `ingest/core/progress.py`; set the `INGEST_PROGRESS`
       environment variable to `0`/`false` to disable progress bars in non-interactive environments.
-    * Relatedness indexing emits info-level logs around the baseline PageRank and fingerprint loops so ingestion logs
-      continue to show progress even when progress bars are hidden.
+    * Relatedness indexing emits info-level logs around the baseline PageRank run so ingestion logs continue to show
+      progress even when progress bars are hidden.
+* **Graph Relatedness & ANN:**
+	* Provision embeddings are upserted incrementally into the `embeddings` table (pgvector with HNSW index) via
+	  `ingest/core/relatedness_indexer.upsert_provision_embeddings`.
+	* When defining pgvector HNSW indexes, always specify the operator class (`vector_l2_ops` for our MiniLM embeddings) or PostgreSQL will reject the DDL.
+	* The ingestion pipeline now computes only the baseline PageRank; Personalized PageRank fingerprints are computed
+	  lazily at query time through `backend/services/relatedness_engine.py`.
+    * `relatedness_fingerprint` rows are cached per provision with a `graph_version`. Bump the version after ingestion
+      using `python -m backend.manage_graph bump-version` (or let the pipeline do it automatically) to invalidate stale
+      caches. Use `python -m backend.manage_graph show-version` to inspect the current value.
+    * Case law / document chunks will reuse the same embeddings + ANN infrastructure once ingested.
 * **Database (LTree):**
     * The `provisions.hierarchy_path_ltree` column is the primary mechanism for organizing the legislative hierarchy.
     * The path format is `ActID.SanitizedLocalID1.SanitizedLocalID2...` (e.g.,
@@ -63,3 +82,4 @@ ingest/
 * **API Design:** Adhere to RESTful principles. Use FastAPI dependency injection (`get_db`) for database sessions. Logic
   resides in `crud.py`.
 * **Type Hinting:** Utilize Python type hints strictly throughout the backend and ingestion code.
+* **ORM Quirks:** SQLAlchemy reserves the attribute name `metadata`. When working with `backend.models.semantic.Document`, use the `doc_metadata` attribute (it still maps to the `metadata` column) to avoid Declarative collisions.

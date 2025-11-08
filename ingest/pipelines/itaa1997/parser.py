@@ -2,6 +2,7 @@
 import hashlib
 import os
 import re
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
@@ -95,6 +96,10 @@ def _initialize_media_context(filepath: str) -> None:
 	act_segment = _sanitize_media_segment(config.ACT_ID.lower())
 	relative_dir = os.path.join(act_segment, doc_basename)
 	absolute_dir = os.path.join(config.MEDIA_ROOT, relative_dir)
+	root_dir = os.path.abspath(config.MEDIA_ROOT)
+	target_dir = os.path.abspath(absolute_dir)
+	if os.path.isdir(target_dir) and os.path.commonpath([root_dir, target_dir]) == root_dir:
+		shutil.rmtree(target_dir)
 	os.makedirs(absolute_dir, exist_ok=True)
 	CURRENT_MEDIA_CONTEXT = {
 		"relative_dir": relative_dir,
@@ -129,6 +134,9 @@ def _persist_image_blob(blob: bytes, partname: str, content_type: str) -> Option
 		subtype = content_type.split('/')[-1].lower()
 		if subtype:
 			original_extension = f".{subtype}"
+	digest = hashlib.sha1(blob).hexdigest()
+	if digest in cache:
+		return cache[digest]
 	converted_blob = _convert_blob_to_png(
 		blob,
 		source_extension=original_extension,
@@ -136,16 +144,12 @@ def _persist_image_blob(blob: bytes, partname: str, content_type: str) -> Option
 	)
 	stored_blob = converted_blob if converted_blob is not None else blob
 	stored_extension = ".png" if converted_blob is not None else (original_extension or ".bin")
-	digest = hashlib.sha1(stored_blob).hexdigest()
-	if digest in cache:
-		return cache[digest]
 	filename = f"{digest[:16]}{stored_extension}"
 	relative_path = os.path.join(CURRENT_MEDIA_CONTEXT["relative_dir"], filename)
 	absolute_path = os.path.join(config.MEDIA_ROOT, relative_path)
 	os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
-	if not os.path.exists(absolute_path):
-		with open(absolute_path, "wb") as media_file:
-			media_file.write(stored_blob)
+	with open(absolute_path, "wb") as media_file:
+		media_file.write(stored_blob)
 	renderable = converted_blob is not None or stored_extension.lower() in _RENDERABLE_EXTENSIONS
 	public_url = _build_media_url(relative_path) if renderable else None
 	record: Dict[str, Any] = {

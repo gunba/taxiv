@@ -6,7 +6,10 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Callable, Optional, Sequence
+
+from PIL import Image, ImageChops, UnidentifiedImageError
 
 
 @dataclass
@@ -65,7 +68,8 @@ def convert_metafile_to_png(blob: bytes, fmt: str) -> ConversionOutcome:
             continue
         result, message = converter.function(blob, format_key)
         if result is not None:
-            return ConversionOutcome(png_bytes=result, messages=messages)
+            trimmed = _trim_png_canvas(result)
+            return ConversionOutcome(png_bytes=trimmed, messages=messages)
         if message:
             messages.append(message)
 
@@ -200,6 +204,54 @@ def _convert_with_wmf2svg(blob: bytes, fmt: str) -> tuple[Optional[bytes], Optio
         if not data:
             return None, "rsvg-convert conversion produced an empty file"
         return data, None
+
+
+def _trim_png_canvas(png_bytes: bytes) -> bytes:
+    """Crop blank margins that surround ImageMagick PDF rasterization output."""
+
+    if not png_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return png_bytes
+
+    try:
+        with Image.open(BytesIO(png_bytes)) as image:
+            image.load()
+            width, height = image.size
+            if not width or not height:
+                return png_bytes
+
+            bbox = None
+            if "A" in image.getbands():
+                bbox = image.getchannel("A").getbbox()
+            if bbox is None:
+                background = image.getpixel((0, 0))
+                bg_image = Image.new(image.mode, image.size, background)
+                diff = ImageChops.difference(image, bg_image)
+                bbox = diff.getbbox()
+            if not bbox:
+                return png_bytes
+
+            left, upper, right, lower = bbox
+            trimmed_width = right - left
+            trimmed_height = lower - upper
+            shrink_w = width - trimmed_width
+            shrink_h = height - trimmed_height
+            known_full_page = (width, height) == (595, 842)
+            minimal_shrink = shrink_w < 4 and shrink_h < 4
+            if trimmed_width <= 0 or trimmed_height <= 0:
+                return png_bytes
+            if not known_full_page and minimal_shrink:
+                return png_bytes
+            if trimmed_width == width and trimmed_height == height:
+                return png_bytes
+
+            trimmed = image.crop(bbox)
+            buffer = BytesIO()
+            trimmed.save(buffer, format="PNG")
+            return buffer.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return png_bytes
+
+    return png_bytes
 
 
 def _find_imagemagick_executable() -> Optional[Sequence[str]]:
