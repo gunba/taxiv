@@ -4,8 +4,8 @@ from pathlib import Path as PathLib
 from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Path as FastAPIPath
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 # Import models to register them
@@ -84,7 +84,7 @@ def get_provision_detail(internal_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/provisions/hierarchy/{act_id}", response_model=List[schemas.ProvisionHierarchy])
 def get_hierarchy(
-                act_id: str = FastAPIPath(..., description="The ID of the Act (e.g., ITAA1997)"),
+		act_id: str = FastAPIPath(..., description="The ID of the Act (e.g., ITAA1997)"),
 		parent_id: Optional[str] = Query(None,
 										 description="The internal_id of the parent provision. If None, returns top-level elements."),
 		db: Session = Depends(get_db)
@@ -95,7 +95,7 @@ def get_hierarchy(
 
 @app.get("/api/provisions/search_hierarchy/{act_id}", response_model=List[schemas.ProvisionHierarchy])
 def search_hierarchy(
-                act_id: str = FastAPIPath(..., description="The ID of the Act."),
+		act_id: str = FastAPIPath(..., description="The ID of the Act."),
 		query: str = Query(..., description="The search query string."),
 		db: Session = Depends(get_db)
 ):
@@ -118,8 +118,8 @@ def get_provision_by_ref_id(
 
 @app.get("/api/provisions/breadcrumbs/{internal_id}", response_model=List[schemas.BreadcrumbItem])
 def get_breadcrumbs(
-        internal_id: str = FastAPIPath(..., description="The internal ID of the provision."),
-	db: Session = Depends(get_db)
+		internal_id: str = FastAPIPath(..., description="The internal ID of the provision."),
+		db: Session = Depends(get_db)
 ):
 	"""Get the breadcrumbs for a given provision."""
 	return crud.get_breadcrumbs(db, internal_id)
@@ -127,15 +127,15 @@ def get_breadcrumbs(
 
 @app.post("/api/provisions/export_markdown", response_model=schemas.ExportMarkdownResponse)
 def export_markdown(request: schemas.ExportMarkdownRequest, db: Session = Depends(get_db)):
-        try:
-                markdown = export_markdown_for_provision(
-                        db,
-                        request.provision_internal_id,
-                        request.include_descendants,
-                )
-        except ValueError as exc:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-        return schemas.ExportMarkdownResponse(markdown=markdown)
+	try:
+		markdown = export_markdown_for_provision(
+			db,
+			request.provision_internal_id,
+			request.include_descendants,
+		)
+	except ValueError as exc:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+	return schemas.ExportMarkdownResponse(markdown=markdown)
 
 
 @app.post("/api/search/unified", response_model=UnifiedSearchResponse)

@@ -46,7 +46,8 @@ class FakeDB:
 		return FakeQuery(self._subtree_ids)
 
 
-def _make_detail(*, internal_id: str, ref_id: str, title: str, hierarchy_path: str, sibling_order: int, content: str, references=None, definitions=None, parent_internal_id=None):
+def _make_detail(*, internal_id: str, ref_id: str, title: str, hierarchy_path: str, sibling_order: int, content: str,
+				 references=None, definitions=None, parent_internal_id=None):
 	references = references or []
 	definitions = definitions or []
 	return schemas.ProvisionDetail(
@@ -210,4 +211,3 @@ def test_export_markdown_endpoint_not_found(monkeypatch):
 
 	assert excinfo.value.status_code == 404
 	assert excinfo.value.detail == "Provision missing"
-

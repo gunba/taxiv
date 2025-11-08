@@ -29,7 +29,7 @@ High-level design of the solution, including affected components and data flows.
 * **Goal:**
 * **Steps:**
     1. [Detailed step]
-    
+
 ...
 
 ## 5. Testing Strategy

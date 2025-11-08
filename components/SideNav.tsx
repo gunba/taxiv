@@ -23,14 +23,14 @@ interface NavNodeProps {
 }
 
 export const NavNode: React.FC<NavNodeProps> = ({
-                                             node,
-                                             actId,
-                                             onSelectNode,
-                                             selectedNodeId,
-                                             level,
-                                             isSearchActive,
-                                             ancestry,
-                                         }) => {
+                                                    node,
+                                                    actId,
+                                                    onSelectNode,
+                                                    selectedNodeId,
+                                                    level,
+                                                    isSearchActive,
+                                                    ancestry,
+                                                }) => {
     const embeddedChildren = Array.isArray(node.children) ? node.children : [];
 
     const [fetchedChildren, setFetchedChildren] = useState<HierarchyNode[] | null>(null);
@@ -228,11 +228,12 @@ export const NavNode: React.FC<NavNodeProps> = ({
                             {isLoading ? (
                                 <span className="text-xs">...</span>
                             ) : (
-                                <ChevronRightIcon className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}/>
+                                <ChevronRightIcon
+                                    className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}/>
                             )}
                         </button>
                     ) : (
-                        <span className="inline-block w-6 h-6" aria-hidden="true" />
+                        <span className="inline-block w-6 h-6" aria-hidden="true"/>
                     )}
                 </div>
 
@@ -242,7 +243,8 @@ export const NavNode: React.FC<NavNodeProps> = ({
 
                 <div className="flex flex-col min-w-0">
                     {ancestry.length > 0 && (
-                        <span className="text-[0.65rem] uppercase tracking-wide text-gray-400 truncate">{breadcrumb}</span>
+                        <span
+                            className="text-[0.65rem] uppercase tracking-wide text-gray-400 truncate">{breadcrumb}</span>
                     )}
                     <span className="truncate text-sm font-medium">{node.title}</span>
                 </div>

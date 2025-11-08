@@ -47,9 +47,9 @@ def _unique_by_internal_id(details: Iterable[ProvisionDetail]) -> List[Provision
 
 
 def _collect_subtree_details(
-	db: Session,
-	root_internal_id: str,
-	include_descendants: bool,
+		db: Session,
+		root_internal_id: str,
+		include_descendants: bool,
 ) -> List[ProvisionDetail]:
 	root = db.get(models.Provision, root_internal_id)
 	if not root:
@@ -79,8 +79,8 @@ def _collect_subtree_details(
 
 
 def _gather_referenced_ids(
-	details: Sequence[ProvisionDetail],
-	exclude_ids: Set[str],
+		details: Sequence[ProvisionDetail],
+		exclude_ids: Set[str],
 ) -> List[str]:
 	seen: Set[str] = set()
 	ordered: List[str] = []
@@ -96,9 +96,9 @@ def _gather_referenced_ids(
 
 
 def _collect_definitions(
-	db: Session,
-	seed_details: Sequence[ProvisionDetail],
-	exclude_ids: Set[str],
+		db: Session,
+		seed_details: Sequence[ProvisionDetail],
+		exclude_ids: Set[str],
 ) -> List[ProvisionDetail]:
 	queue: deque[str] = deque()
 	seen: Set[str] = set()
@@ -132,7 +132,7 @@ def _collect_definitions(
 
 
 def _collect_unresolved_references(
-	details: Sequence[ProvisionDetail],
+		details: Sequence[ProvisionDetail],
 ) -> List[Tuple[str, str, str]]:
 	seen: Set[Tuple[str, str, str]] = set()
 	ordered: List[Tuple[str, str, str]] = []
@@ -159,9 +159,9 @@ def _render_detail_block(detail: ProvisionDetail) -> str:
 
 
 def export_markdown_for_provision(
-	db: Session,
-	provision_internal_id: str,
-	include_descendants: bool,
+		db: Session,
+		provision_internal_id: str,
+		include_descendants: bool,
 ) -> str:
 	"""Assemble Markdown export for a provision and related data."""
 	copied_details = _collect_subtree_details(db, provision_internal_id, include_descendants)
@@ -213,4 +213,3 @@ def export_markdown_for_provision(
 			sections.append(f"- {target_ref_id} (from {source_ref_id}){snippet_part}")
 
 	return "\n\n".join(sections).strip()
-

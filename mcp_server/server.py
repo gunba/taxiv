@@ -6,10 +6,11 @@ All tool outputs default to **markdown**. JSON output is available via `format="
 """
 
 from __future__ import annotations
+
 import asyncio
 import atexit
-import os
 import json
+import os
 import textwrap
 from typing import Any, Dict, List, Optional
 
@@ -37,6 +38,7 @@ You are connected to the Taxiv MCP server.
 
 All tool responses are in markdown by default. If you need raw data for programmatic reasoning, pass `format="json"`.
 """
+
 
 def mmd_escape(text: str) -> str:
 	"""Light escape for markdown text in inline contexts."""
@@ -129,7 +131,7 @@ def format_search_results_md(payload: Dict[str, Any]) -> str:
 			if why:
 				parts.append("  - *Why:*")
 				for w in why[:3]:
-					parts.append(f"    - {w.get('type')}: {mmd_escape(w.get('detail',''))}")
+					parts.append(f"    - {w.get('type')}: {mmd_escape(w.get('detail', ''))}")
 			# Snippet
 			snip = item.get("snippet")
 			if snip:
@@ -181,7 +183,8 @@ def create_server() -> FastMCP:
 		return INSTRUCTIONS.strip()
 
 	@mcp.tool()
-	async def unified_search(query: str, k: int = 25, include_explanations: bool = True, format: str = "markdown") -> str:
+	async def unified_search(query: str, k: int = 25, include_explanations: bool = True,
+							 format: str = "markdown") -> str:
 		"""
 		Unified relatedness search (nodes + terms + free-text in one query).
 		Default output is markdown. Pass format="json" for raw payload.
@@ -195,7 +198,8 @@ def create_server() -> FastMCP:
 		if not query or not query.strip():
 			return "_Empty query supplied._"
 
-		payload = await be.unified_search(query=query, k=min(max(int(k), 1), 100), include_explanations=bool(include_explanations))
+		payload = await be.unified_search(query=query, k=min(max(int(k), 1), 100),
+										  include_explanations=bool(include_explanations))
 		if format.lower() == "json":
 			return "```json\n" + json.dumps(payload, indent=2) + "\n```"
 		return format_search_results_md(payload)
@@ -222,7 +226,8 @@ def create_server() -> FastMCP:
 		return "\n\n".join(parts)
 
 	@mcp.tool()
-	async def fetch_markdown(internal_id: str, include_descendants: bool = False, max_chars: Optional[int] = None) -> str:
+	async def fetch_markdown(internal_id: str, include_descendants: bool = False,
+							 max_chars: Optional[int] = None) -> str:
 		"""
 		Export canonical markdown for a provision (and optionally its subtree).
 		This uses the backend's export_markdown utility (no separate renderer here).
@@ -250,7 +255,7 @@ def create_server() -> FastMCP:
 
 		parts = [f"### Breadcrumbs for `{internal_id}`", ""]
 		for c in crumbs:
-			parts.append(f"- {mmd_escape(c.get('title',''))}  \n  `internal_id: {c.get('internal_id','')}`")
+			parts.append(f"- {mmd_escape(c.get('title', ''))}  \n  `internal_id: {c.get('internal_id', '')}`")
 		return "\n".join(parts)
 
 	return mcp

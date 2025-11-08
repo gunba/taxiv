@@ -3,13 +3,12 @@ import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {HierarchyNode} from '@/types';
+import {exportMarkdownToClipboard} from '@/utils/exportMarkdown';
+import {NavNode} from '@/components/SideNav';
 
 vi.mock('@/utils/exportMarkdown', () => ({
     exportMarkdownToClipboard: vi.fn(),
 }));
-
-import {exportMarkdownToClipboard} from '@/utils/exportMarkdown';
-import {NavNode} from '@/components/SideNav';
 
 const mockedExportMarkdown = vi.mocked(exportMarkdownToClipboard);
 
@@ -81,7 +80,8 @@ describe('NavNode export controls', () => {
     });
 
     it('disables actions while export is pending and prevents concurrent requests', async () => {
-        let resolveExport: (value: {status: 'success'; markdown: string}) => void = () => {};
+        let resolveExport: (value: { status: 'success'; markdown: string }) => void = () => {
+        };
         mockedExportMarkdown.mockImplementation(
             () =>
                 new Promise(resolve => {

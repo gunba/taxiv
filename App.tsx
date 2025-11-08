@@ -177,7 +177,8 @@ const App: React.FC = () => {
             </main>
 
             {/* Detail View Panel */}
-            <aside className="hidden lg:block lg:w-1/4 h-full border-l border-gray-700 bg-gray-800 overflow-y-auto scrollbar-stable">
+            <aside
+                className="hidden lg:block lg:w-1/4 h-full border-l border-gray-700 bg-gray-800 overflow-y-auto scrollbar-stable">
                 <DetailView
                     content={detailViewContent}
                     onTermClick={handleTermClick}

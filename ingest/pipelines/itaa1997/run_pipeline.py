@@ -13,15 +13,15 @@ from tqdm import tqdm
 # MODIFICATION: Import the module itself
 from ingest.core import llm_extraction
 from ingest.core.analysis import GraphAnalyzer, sanitize_for_ltree
-from ingest.core.relatedness_indexer import build_relatedness_index, RelatednessIndexerConfig
 from ingest.core.loading import DatabaseLoader
+from ingest.core.relatedness_indexer import build_relatedness_index, RelatednessIndexerConfig
 from ingest.core.utils import recursive_finalize_structure
 # Import pipeline-specific modules
 # We import the functions and global state variables from the parser module as adapted in Phase 1.
 from .config import Config
 from .parser import (
-        process_document, compile_definition_regex, DEFINITIONS_995_1, DEFINITION_MARKER_REGEX,
-        identify_defined_terms, find_defined_terms_in_text
+	process_document, compile_definition_regex, DEFINITIONS_995_1, DEFINITION_MARKER_REGEX,
+	identify_defined_terms, find_defined_terms_in_text
 )
 
 # Setup basic logging
@@ -59,25 +59,25 @@ def process_and_analyze_definitions_concurrent(pbar_llm, executor, config: Confi
 	for term in DEFINITIONS_995_1:
 		current_content = DEFINITIONS_995_1[term]["content_md"]
 
-                # If the precise regex is available (compiled in the parser module), use it.
-                if DEFINITION_MARKER_REGEX:
-                        # identify_defined_terms (from .parser) uses the global DEFINITION_MARKER_REGEX
-                        precise_terms = identify_defined_terms(current_content)
-                        # Overwrite the terms identified by the fallback regex in Pass 1.
-                        DEFINITIONS_995_1[term]["defined_terms_used"] = precise_terms
+		# If the precise regex is available (compiled in the parser module), use it.
+		if DEFINITION_MARKER_REGEX:
+			# identify_defined_terms (from .parser) uses the global DEFINITION_MARKER_REGEX
+			precise_terms = identify_defined_terms(current_content)
+			# Overwrite the terms identified by the fallback regex in Pass 1.
+			DEFINITIONS_995_1[term]["defined_terms_used"] = precise_terms
 
-                greedy_terms = find_defined_terms_in_text(current_content)
-                if greedy_terms:
-                        existing_terms = DEFINITIONS_995_1[term].get("defined_terms_used")
-                        if isinstance(existing_terms, set):
-                                existing_terms.update(greedy_terms)
-                        elif isinstance(existing_terms, list):
-                                DEFINITIONS_995_1[term]["defined_terms_used"] = set(existing_terms).union(greedy_terms)
-                        else:
-                                DEFINITIONS_995_1[term]["defined_terms_used"] = set(greedy_terms)
+		greedy_terms = find_defined_terms_in_text(current_content)
+		if greedy_terms:
+			existing_terms = DEFINITIONS_995_1[term].get("defined_terms_used")
+			if isinstance(existing_terms, set):
+				existing_terms.update(greedy_terms)
+			elif isinstance(existing_terms, list):
+				DEFINITIONS_995_1[term]["defined_terms_used"] = set(existing_terms).union(greedy_terms)
+			else:
+				DEFINITIONS_995_1[term]["defined_terms_used"] = set(greedy_terms)
 
-                # 2. Submit LLM analysis to the pool
-                if llm_extraction.LLM_CLIENT and current_content:
+		# 2. Submit LLM analysis to the pool
+		if llm_extraction.LLM_CLIENT and current_content:
 			# Prepare temporary structure for the LLM task
 			existing_refs = DEFINITIONS_995_1[term].get("references", set())
 			if not isinstance(existing_refs, set):

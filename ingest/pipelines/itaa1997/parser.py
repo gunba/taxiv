@@ -1,10 +1,10 @@
 # ingest/pipelines/itaa1997/parser.py
+import hashlib
 import os
 import re
-import hashlib
-from io import BytesIO
-from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from io import BytesIO
 from typing import Any, Dict, Optional, Pattern, List, Tuple, Set
 
 import docx
@@ -334,146 +334,146 @@ def identify_defined_terms(text: str) -> Set[str]:
 
 
 def compile_definition_regex():
-        """Compiles the DEFINITION_MARKER_REGEX after Pass 1."""
-        global DEFINITION_MARKER_REGEX
-        print("\nCompiling precise definition pattern for Pass 2...")
+	"""Compiles the DEFINITION_MARKER_REGEX after Pass 1."""
+	global DEFINITION_MARKER_REGEX
+	print("\nCompiling precise definition pattern for Pass 2...")
 
-        if not DEFINITIONS_995_1:
-                print("Warning: No definitions found. Proceeding with fallback pattern.")
-                DEFINITION_VARIANT_MAP.clear()
-                DEFINITION_GREEDY_REGEX = None
-                return
+	if not DEFINITIONS_995_1:
+		print("Warning: No definitions found. Proceeding with fallback pattern.")
+		DEFINITION_VARIANT_MAP.clear()
+		DEFINITION_GREEDY_REGEX = None
+		return
 
-        sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
-        escaped_terms = [re.escape(term) for term in sorted_terms]
-        alternation_group = "|".join(escaped_terms)
+	sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
+	escaped_terms = [re.escape(term) for term in sorted_terms]
+	alternation_group = "|".join(escaped_terms)
 
-        # Ensure the pattern matches the structure used in the config regex (raw string)
-        pattern = r'(?:^|[\s\(])\*(?P<term>' + alternation_group + r')(?=[\s,.;:)]|$)'
+	# Ensure the pattern matches the structure used in the config regex (raw string)
+	pattern = r'(?:^|[\s\(])\*(?P<term>' + alternation_group + r')(?=[\s,.;:)]|$)'
 
-        try:
-                DEFINITION_MARKER_REGEX = re.compile(pattern, re.IGNORECASE)
-                print(f"Pattern compiled successfully with {len(sorted_terms)} terms.")
-        except re.error as e:
-                print(f"Error compiling definition regex: {str(e)}. Falling back to generic pattern.")
+	try:
+		DEFINITION_MARKER_REGEX = re.compile(pattern, re.IGNORECASE)
+		print(f"Pattern compiled successfully with {len(sorted_terms)} terms.")
+	except re.error as e:
+		print(f"Error compiling definition regex: {str(e)}. Falling back to generic pattern.")
 
-        build_definition_greedy_matcher(sorted_terms)
+	build_definition_greedy_matcher(sorted_terms)
 
 
 def _generate_plural_variants(term: str) -> Set[str]:
-        """Generate plural variants for the final word in a term."""
-        stripped = term.strip()
-        if not stripped:
-                return set()
+	"""Generate plural variants for the final word in a term."""
+	stripped = term.strip()
+	if not stripped:
+		return set()
 
-        match = re.search(r'([A-Za-z]+)([^A-Za-z]*)$', stripped)
-        if not match:
-                return set()
+	match = re.search(r'([A-Za-z]+)([^A-Za-z]*)$', stripped)
+	if not match:
+		return set()
 
-        last_word = match.group(1)
-        trailing = match.group(2)
-        prefix = stripped[:match.start(1)]
+	last_word = match.group(1)
+	trailing = match.group(2)
+	prefix = stripped[:match.start(1)]
 
-        lower_last = last_word.lower()
-        plural_forms = set()
+	lower_last = last_word.lower()
+	plural_forms = set()
 
-        if not last_word:
-                return set()
+	if not last_word:
+		return set()
 
-        if lower_last.endswith('s'):
-                # Already plural-like; avoid producing awkward duplicates.
-                return set()
+	if lower_last.endswith('s'):
+		# Already plural-like; avoid producing awkward duplicates.
+		return set()
 
-        if re.search(r'(s|x|z|ch|sh)$', lower_last):
-                plural_forms.add(last_word + 'es')
-        elif re.search(r'[bcdfghjklmnpqrstvwxyz]y$', lower_last):
-                plural_forms.add(last_word[:-1] + 'ies')
-        elif lower_last.endswith('fe'):
-                plural_forms.add(last_word[:-2] + 'ves')
-        elif lower_last.endswith('f') and len(last_word) > 1:
-                plural_forms.add(last_word[:-1] + 'ves')
-        else:
-                plural_forms.add(last_word + 's')
+	if re.search(r'(s|x|z|ch|sh)$', lower_last):
+		plural_forms.add(last_word + 'es')
+	elif re.search(r'[bcdfghjklmnpqrstvwxyz]y$', lower_last):
+		plural_forms.add(last_word[:-1] + 'ies')
+	elif lower_last.endswith('fe'):
+		plural_forms.add(last_word[:-2] + 'ves')
+	elif lower_last.endswith('f') and len(last_word) > 1:
+		plural_forms.add(last_word[:-1] + 'ves')
+	else:
+		plural_forms.add(last_word + 's')
 
-        variants = set()
-        for plural_word in plural_forms:
-                variants.add(prefix + plural_word + trailing)
-        return variants
+	variants = set()
+	for plural_word in plural_forms:
+		variants.add(prefix + plural_word + trailing)
+	return variants
 
 
 def _generate_definition_variants(term: str) -> List[str]:
-        """Return ordered variants (base + plural) for a definition term."""
-        base = term.strip()
-        variants: List[str] = []
-        seen: Set[str] = set()
+	"""Return ordered variants (base + plural) for a definition term."""
+	base = term.strip()
+	variants: List[str] = []
+	seen: Set[str] = set()
 
-        for candidate in [base, *sorted(_generate_plural_variants(base), key=len, reverse=True)]:
-                normalized = candidate.strip()
-                if not normalized:
-                        continue
-                lowered = normalized.lower()
-                if lowered in seen:
-                        continue
-                seen.add(lowered)
-                variants.append(normalized)
+	for candidate in [base, *sorted(_generate_plural_variants(base), key=len, reverse=True)]:
+		normalized = candidate.strip()
+		if not normalized:
+			continue
+		lowered = normalized.lower()
+		if lowered in seen:
+			continue
+		seen.add(lowered)
+		variants.append(normalized)
 
-        return variants
+	return variants
 
 
 def build_definition_greedy_matcher(sorted_terms: Optional[List[str]] = None) -> None:
-        """Compile a greedy regex and variant map for definition matching."""
-        global DEFINITION_VARIANT_MAP, DEFINITION_GREEDY_REGEX
+	"""Compile a greedy regex and variant map for definition matching."""
+	global DEFINITION_VARIANT_MAP, DEFINITION_GREEDY_REGEX
 
-        if sorted_terms is None:
-                sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
+	if sorted_terms is None:
+		sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
 
-        DEFINITION_VARIANT_MAP = {}
-        pattern_parts: List[str] = []
+	DEFINITION_VARIANT_MAP = {}
+	pattern_parts: List[str] = []
 
-        for term in sorted_terms:
-                for variant in _generate_definition_variants(term):
-                        lowered = variant.lower()
-                        if lowered in DEFINITION_VARIANT_MAP:
-                                continue
-                        DEFINITION_VARIANT_MAP[lowered] = term
-                        pattern_parts.append(re.escape(variant))
+	for term in sorted_terms:
+		for variant in _generate_definition_variants(term):
+			lowered = variant.lower()
+			if lowered in DEFINITION_VARIANT_MAP:
+				continue
+			DEFINITION_VARIANT_MAP[lowered] = term
+			pattern_parts.append(re.escape(variant))
 
-        if not pattern_parts:
-                DEFINITION_GREEDY_REGEX = None
-                return
+	if not pattern_parts:
+		DEFINITION_GREEDY_REGEX = None
+		return
 
-        alternation_group = "|".join(pattern_parts)
-        boundary_pattern = r'(?<![A-Za-z0-9])(' + alternation_group + r')(?![A-Za-z0-9])'
+	alternation_group = "|".join(pattern_parts)
+	boundary_pattern = r'(?<![A-Za-z0-9])(' + alternation_group + r')(?![A-Za-z0-9])'
 
-        try:
-                DEFINITION_GREEDY_REGEX = re.compile(boundary_pattern, re.IGNORECASE)
-        except re.error as exc:
-                print(f"Error compiling greedy definition regex: {exc}")
-                DEFINITION_GREEDY_REGEX = None
+	try:
+		DEFINITION_GREEDY_REGEX = re.compile(boundary_pattern, re.IGNORECASE)
+	except re.error as exc:
+		print(f"Error compiling greedy definition regex: {exc}")
+		DEFINITION_GREEDY_REGEX = None
 
 
 def find_defined_terms_in_text(text: str) -> Set[str]:
-        """Return canonical definition terms found in content outside markdown links."""
-        if not text or not DEFINITION_GREEDY_REGEX or not DEFINITION_VARIANT_MAP:
-                return set()
+	"""Return canonical definition terms found in content outside markdown links."""
+	if not text or not DEFINITION_GREEDY_REGEX or not DEFINITION_VARIANT_MAP:
+		return set()
 
-        segments: List[str] = []
-        last_end = 0
-        for match in MARKDOWN_LINK_PATTERN.finditer(text):
-                if match.start() > last_end:
-                        segments.append(text[last_end:match.start()])
-                last_end = match.end()
-        if last_end < len(text):
-                segments.append(text[last_end:])
+	segments: List[str] = []
+	last_end = 0
+	for match in MARKDOWN_LINK_PATTERN.finditer(text):
+		if match.start() > last_end:
+			segments.append(text[last_end:match.start()])
+		last_end = match.end()
+	if last_end < len(text):
+		segments.append(text[last_end:])
 
-        found: Set[str] = set()
-        for segment in segments:
-                for match in DEFINITION_GREEDY_REGEX.finditer(segment):
-                        variant_text = match.group(1).strip().lower()
-                        canonical = DEFINITION_VARIANT_MAP.get(variant_text)
-                        if canonical:
-                                found.add(canonical)
-        return found
+	found: Set[str] = set()
+	for segment in segments:
+		for match in DEFINITION_GREEDY_REGEX.finditer(segment):
+			variant_text = match.group(1).strip().lower()
+			canonical = DEFINITION_VARIANT_MAP.get(variant_text)
+			if canonical:
+				found.add(canonical)
+	return found
 
 
 # =============================================================================

@@ -1,10 +1,13 @@
-import {beforeEach, afterAll, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeEach, describe, expect, it, vi} from 'vitest';
 import {exportMarkdownToClipboard} from '../utils/exportMarkdown';
 
 const originalFetch = global.fetch;
 const originalClipboard = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
 
-const createResponse = (overrides: Partial<Response> & {json?: () => Promise<unknown>; text?: () => Promise<string>}) => ({
+const createResponse = (overrides: Partial<Response> & {
+    json?: () => Promise<unknown>;
+    text?: () => Promise<string>
+}) => ({
     ok: true,
     status: 200,
     statusText: 'OK',
@@ -28,12 +31,12 @@ afterAll(() => {
     if (originalClipboard) {
         Object.defineProperty(window.navigator, 'clipboard', originalClipboard);
     } else {
-        delete (window.navigator as unknown as {clipboard?: unknown}).clipboard;
+        delete (window.navigator as unknown as { clipboard?: unknown }).clipboard;
     }
     global.fetch = originalFetch;
 });
 
-const getClipboardMock = () => (window.navigator.clipboard as {writeText: ReturnType<typeof vi.fn>}).writeText;
+const getClipboardMock = () => (window.navigator.clipboard as { writeText: ReturnType<typeof vi.fn> }).writeText;
 
 describe('exportMarkdownToClipboard', () => {
     it('copies markdown to the clipboard and reports success', async () => {

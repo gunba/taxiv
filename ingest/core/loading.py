@@ -11,15 +11,15 @@ from sqlalchemy.orm import Session
 # Note: This requires the backend module structure to be in the Python path,
 # which is handled by the Docker setup (WORKDIR /app).
 try:
-        from backend.database import get_db, initialize_engine, Base
-        from backend.models.legislation import (
-                Act,
-                Provision,
-                Reference,
-                DefinedTermUsage,
-                BaselinePagerank,
-                RelatednessFingerprint,
-        )
+	from backend.database import get_db, initialize_engine, Base
+	from backend.models.legislation import (
+		Act,
+		Provision,
+		Reference,
+		DefinedTermUsage,
+		BaselinePagerank,
+		RelatednessFingerprint,
+	)
 except ImportError as e:
 	logging.error(
 		f"Failed to import backend modules. Ensure the environment is set up correctly (e.g., running inside Docker container). Error: {e}")
@@ -287,8 +287,10 @@ class DatabaseLoader:
 		try:
 			db = next(db_session_generator)
 			subquery = db.query(Provision.internal_id).filter(Provision.act_id == self.act_id).subquery()
-			db.query(BaselinePagerank).filter(BaselinePagerank.provision_id.in_(subquery)).delete(synchronize_session=False)
-			db.query(RelatednessFingerprint).filter(RelatednessFingerprint.source_id.in_(subquery)).delete(synchronize_session=False)
+			db.query(BaselinePagerank).filter(BaselinePagerank.provision_id.in_(subquery)).delete(
+				synchronize_session=False)
+			db.query(RelatednessFingerprint).filter(RelatednessFingerprint.source_id.in_(subquery)).delete(
+				synchronize_session=False)
 			db.commit()
 
 			if baseline_pi:

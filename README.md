@@ -120,9 +120,11 @@ for additional UI feedback. To adjust the structure of the generated markdown it
 
 ### Troubleshooting
 
-* **Clipboard permission denied:** Confirm the page is loaded over HTTPS (or `localhost`) and that the user initiated the
+* **Clipboard permission denied:** Confirm the page is loaded over HTTPS (or `localhost`) and that the user initiated
+  the
   export via a direct interaction. Browsers may require reloading the page after updating clipboard settings.
-* **Backend export endpoint unavailable:** The SideNav export calls the `POST /api/provisions/export_markdown` endpoint. Ensure the backend container is running
+* **Backend export endpoint unavailable:** The SideNav export calls the `POST /api/provisions/export_markdown` endpoint.
+  Ensure the backend container is running
   (`docker-compose ps`) and inspect the backend logs for errors (`docker-compose logs backend`).
 * **Export succeeds but references are missing:** Verify that referenced provisions exist in the database. If the
   ingestion pipeline skipped source files, re-run `ingest.pipelines.itaa1997.run_pipeline` and confirm
