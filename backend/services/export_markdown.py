@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy.orm import Session
 from sqlalchemy_utils import Ltree
@@ -158,6 +158,18 @@ def _render_detail_block(detail: ProvisionDetail) -> str:
 	return heading
 
 
+def _render_definition_block(
+		detail: ProvisionDetail,
+		referenced_details: Sequence[ProvisionDetail],
+) -> str:
+	block = _render_detail_block(detail)
+	if not referenced_details:
+		return block
+	referenced_blocks = [_render_detail_block(ref_detail) for ref_detail in referenced_details]
+	code_body = "\n\n".join(referenced_blocks)
+	return f"{block}\n\n```\n{code_body}\n```"
+
+
 def export_markdown_for_provision(
 		db: Session,
 		provision_internal_id: str,
@@ -185,9 +197,29 @@ def export_markdown_for_provision(
 	all_seed_details: List[ProvisionDetail] = list(copied_details) + list(referenced_details)
 	all_seen_ids: Set[str] = set(copied_ids)
 	all_seen_ids.update(detail.internal_id for detail in referenced_details)
+
 	definition_details = _collect_definitions(db, all_seed_details, all_seen_ids)
 	definition_details = _unique_by_internal_id(definition_details)
 	definition_details.sort(key=lambda d: (d.hierarchy_path_ltree, d.sibling_order or 0))
+	definition_ids = {detail.internal_id for detail in definition_details}
+	all_seen_ids.update(definition_ids)
+	definition_reference_map: Dict[str, List[ProvisionDetail]] = {}
+	for definition in definition_details:
+		referenced_ids_for_definition = _gather_referenced_ids([definition], all_seen_ids)
+		if not referenced_ids_for_definition:
+			continue
+		referenced_details_for_definition: List[ProvisionDetail] = []
+		for ref_id in referenced_ids_for_definition:
+			detail = crud.get_provision_detail(db, ref_id)
+			if not detail:
+				continue
+			referenced_details_for_definition.append(detail)
+			all_seen_ids.add(detail.internal_id)
+		referenced_details_for_definition = _unique_by_internal_id(
+			referenced_details_for_definition
+		)
+		if referenced_details_for_definition:
+			definition_reference_map[definition.internal_id] = referenced_details_for_definition
 
 	unresolved_refs = _collect_unresolved_references(
 		list(copied_details) + list(referenced_details) + list(definition_details)
@@ -204,7 +236,13 @@ def export_markdown_for_provision(
 
 	if definition_details:
 		sections.append("## Definitions used")
-		sections.extend(_render_detail_block(detail) for detail in definition_details)
+		sections.extend(
+			_render_definition_block(
+					detail,
+					definition_reference_map.get(detail.internal_id, []),
+			)
+			for detail in definition_details
+		)
 
 	if unresolved_refs:
 		sections.append("## Unresolved external references")
