@@ -54,6 +54,8 @@ ingest/
     * LLM interactions MUST use `ingest/core/llm_extraction.py` to utilize the cache.
     * Progress reporting across ingestion phases is handled via `ingest/core/progress.py`; set the `INGEST_PROGRESS`
       environment variable to `0`/`false` to disable progress bars in non-interactive environments.
+    * Relatedness indexing emits info-level logs around the baseline PageRank and fingerprint loops so ingestion logs
+      continue to show progress even when progress bars are hidden.
 * **Database (LTree):**
     * The `provisions.hierarchy_path_ltree` column is the primary mechanism for organizing the legislative hierarchy.
     * The path format is `ActID.SanitizedLocalID1.SanitizedLocalID2...` (e.g.,

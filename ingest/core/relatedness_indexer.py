@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections import defaultdict, deque
 from typing import Dict, List, Tuple, Set
 
@@ -343,22 +344,61 @@ def build_relatedness_index(
 	A_norm = _row_normalize(A_raw)
 
 	# 4) Baseline PageRank-like vector (π) over provisions
+	logger.info(
+		"Starting baseline PageRank over %d provisions (gamma=%.2f)",
+		len(prov_ids),
+		cfg.gamma,
+	)
+	baseline_start = time.perf_counter()
 	baseline_pi = _power_iteration_pagerank(A_norm, cfg.gamma, prov_ids, iters=50)
+	logger.info(
+		"Completed baseline PageRank in %.2f seconds.",
+		time.perf_counter() - baseline_start,
+	)
 
 	# 5) Fingerprints (per provision seed)
 	fingerprints = {}
+	fp_total = len(prov_ids)
+	logger.info(
+		"Starting relatedness fingerprints for %d provisions (eps=%.1e, top_k=%d)",
+		fp_total,
+		cfg.eps,
+		cfg.top_k,
+	)
+	fp_start = time.perf_counter()
 	pbar_fingerprints = progress_bar(
 		prov_ids,
 		desc="Computing relatedness fingerprints",
 		unit="prov",
-		total=len(prov_ids),
+		total=fp_total,
 		leave=True
 	)
+	log_interval = max(1, fp_total // 100)
+	if fp_total >= 5000:
+		log_interval = max(log_interval, 500)
+	processed = 0
 	for seed in pbar_fingerprints:
 		top_list, captured = _approximate_ppr_push(A_norm, seed, cfg.gamma, cfg.eps, cfg.top_k)
 		neighbors = [{"prov_id": vid, "ppr_mass": float(m)} for vid, m in top_list]
 		fingerprints[seed] = (neighbors, float(captured))
+		processed += 1
+		if processed % log_interval == 0 or processed == fp_total:
+			elapsed = time.perf_counter() - fp_start
+			percent = (processed / fp_total) * 100 if fp_total else 100.0
+			avg = elapsed / processed if processed else 0.0
+			logger.info(
+				"Relatedness fingerprints: %d/%d (%.1f%%) processed in %.1fs (avg %.3fs/seed)",
+				processed,
+				fp_total,
+				percent,
+				elapsed,
+				avg,
+			)
 	if hasattr(pbar_fingerprints, "close"):
 		pbar_fingerprints.close()
+	logger.info(
+		"Completed relatedness fingerprints in %.2f seconds.",
+		time.perf_counter() - fp_start,
+	)
 
 	return baseline_pi, fingerprints
