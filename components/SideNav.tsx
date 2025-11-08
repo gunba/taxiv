@@ -197,7 +197,6 @@ export const NavNode: React.FC<NavNodeProps> = ({
 
     const indentStep = 12;
     const indentPadding = level * indentStep;
-    const guidePosition = indentPadding - indentStep / 2;
     const showExpandControl = hasChildren || isLoading;
     const isPending = exportState.status === 'pending';
     const actionGroupVisible =
@@ -210,25 +209,16 @@ export const NavNode: React.FC<NavNodeProps> = ({
     return (
         <li>
             <div className="relative">
-                {level > 0 && (
-                    <span
-                        aria-hidden="true"
-                        className={`absolute top-2 bottom-2 w-px rounded-full ${
-                            isSelected ? 'bg-blue-300/70' : 'bg-gray-700/70'
-                        }`}
-                        style={{left: guidePosition}}
-                    />
-                )}
                 <div
                     onClick={handleSelect}
                     onMouseEnter={() => setIsActionHovered(true)}
                     onMouseLeave={() => setIsActionHovered(false)}
-                    className={`flex items-start gap-3 p-2 my-1 rounded-md cursor-pointer transition-colors duration-150 ${
+                    className={`flex items-center gap-3 p-2 my-1 rounded-md cursor-pointer transition-colors duration-150 ${
                         isSelected ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
                     }`}
                     style={{paddingLeft: indentPadding}}
                 >
-                    <div className="w-6 flex justify-center self-start">
+                    <div className="w-6 flex items-center justify-center">
                         {showExpandControl ? (
                             <button
                                 onClick={toggleExpand}
@@ -249,7 +239,7 @@ export const NavNode: React.FC<NavNodeProps> = ({
                     </div>
 
                     <div className="flex flex-col min-w-0">
-                        <span className="text-sm font-medium whitespace-normal break-words leading-snug">{node.title}</span>
+                        <span className="text-base font-medium whitespace-normal break-words leading-snug">{node.title}</span>
                     </div>
 
                     <div
