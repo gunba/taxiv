@@ -19,7 +19,6 @@ interface NavNodeProps {
     selectedNodeId: string | null;
     level: number;
     isSearchActive: boolean;
-    ancestry: string[];
 }
 
 export const NavNode: React.FC<NavNodeProps> = ({
@@ -29,7 +28,6 @@ export const NavNode: React.FC<NavNodeProps> = ({
                                                     selectedNodeId,
                                                     level,
                                                     isSearchActive,
-                                                    ancestry,
                                                 }) => {
     const embeddedChildren = Array.isArray(node.children) ? node.children : [];
 
@@ -197,8 +195,9 @@ export const NavNode: React.FC<NavNodeProps> = ({
         ],
     );
 
-    const depthLabel = `L${level}`;
-    const breadcrumb = ancestry.join(' › ');
+    const indentStep = 12;
+    const indentPadding = level * indentStep;
+    const guidePosition = indentPadding - indentStep / 2;
     const showExpandControl = hasChildren || isLoading;
     const isPending = exportState.status === 'pending';
     const actionGroupVisible =
@@ -210,101 +209,111 @@ export const NavNode: React.FC<NavNodeProps> = ({
 
     return (
         <li>
-            <div
-                onClick={handleSelect}
-                onMouseEnter={() => setIsActionHovered(true)}
-                onMouseLeave={() => setIsActionHovered(false)}
-                className={`flex items-start gap-3 p-2 my-1 rounded-md cursor-pointer transition-colors duration-150 ${
-                    isSelected ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
-                }`}
-            >
-                <div className="w-6 flex justify-center pt-1">
-                    {showExpandControl ? (
+            <div className="relative">
+                {level > 0 && (
+                    <span
+                        aria-hidden="true"
+                        className={`absolute top-2 bottom-2 w-px rounded-full ${
+                            isSelected ? 'bg-blue-300/70' : 'bg-gray-700/70'
+                        }`}
+                        style={{left: guidePosition}}
+                    />
+                )}
+                <div
+                    onClick={handleSelect}
+                    onMouseEnter={() => setIsActionHovered(true)}
+                    onMouseLeave={() => setIsActionHovered(false)}
+                    className={`flex items-start gap-3 p-2 my-1 rounded-md cursor-pointer transition-colors duration-150 ${
+                        isSelected ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700'
+                    }`}
+                    style={{paddingLeft: indentPadding}}
+                >
+                    <div className="w-6 flex justify-center pt-1">
+                        {showExpandControl ? (
+                            <button
+                                onClick={toggleExpand}
+                                className="p-1 rounded-full hover:bg-gray-600 w-6 h-6 flex items-center justify-center"
+                                aria-label="Toggle expansion"
+                            >
+                                {isLoading ? (
+                                    <span className="text-xs">...</span>
+                                ) : (
+                                    <ChevronRightIcon
+                                        className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                    />
+                                )}
+                            </button>
+                        ) : (
+                            <span className="inline-block w-6 h-6" aria-hidden="true"/>
+                        )}
+                    </div>
+
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium whitespace-normal break-words leading-snug">{node.title}</span>
+                    </div>
+
+                    <div
+                        onFocus={handleActionsFocus}
+                        onBlur={handleActionsBlur}
+                        className={`ml-auto flex items-center gap-2 transition-opacity duration-150 ${
+                            actionGroupVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+                        }`}
+                    >
                         <button
-                            onClick={toggleExpand}
-                            className="p-1 rounded-full hover:bg-gray-600 w-6 h-6 flex items-center justify-center"
-                            aria-label="Toggle expansion"
+                            type="button"
+                            onClick={event => {
+                                event.stopPropagation();
+                                void handleExport(false);
+                            }}
+                            className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label={`Copy markdown for ${node.title}`}
+                            disabled={isPending}
                         >
-                            {isLoading ? (
-                                <span className="text-xs">...</span>
+                            {isPending && exportState.action === 'single' ? (
+                                <span
+                                    className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+                                    aria-hidden="true"
+                                />
                             ) : (
-                                <ChevronRightIcon
-                                    className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}/>
+                                <span>Copy</span>
                             )}
                         </button>
-                    ) : (
-                        <span className="inline-block w-6 h-6" aria-hidden="true"/>
-                    )}
-                </div>
-
-                <span className="px-2 py-1 text-xs font-semibold rounded bg-gray-800 text-gray-300 shrink-0 mt-0.5">
-                    {depthLabel}
-                </span>
-
-                <div className="flex flex-col min-w-0">
-                    {ancestry.length > 0 && (
-                        <span
-                            className="text-[0.65rem] uppercase tracking-wide text-gray-400 truncate">{breadcrumb}</span>
-                    )}
-                    <span className="truncate text-sm font-medium">{node.title}</span>
-                </div>
-
-                <div
-                    onFocus={handleActionsFocus}
-                    onBlur={handleActionsBlur}
-                    className={`ml-auto flex items-center gap-2 transition-opacity duration-150 ${
-                        actionGroupVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-                    }`}
-                >
-                    <button
-                        type="button"
-                        onClick={event => {
-                            event.stopPropagation();
-                            void handleExport(false);
-                        }}
-                        className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                        aria-label={`Copy markdown for ${node.title}`}
-                        disabled={isPending}
-                    >
-                        {isPending && exportState.action === 'single' ? (
-                            <span
-                                className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
-                                aria-hidden="true"
-                            />
-                        ) : (
-                            <span>Copy</span>
-                        )}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={event => {
-                            event.stopPropagation();
-                            void handleExport(true);
-                        }}
-                        className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                        aria-label={`Copy markdown for ${node.title} with descendants`}
-                        disabled={isPending}
-                    >
-                        {isPending && exportState.action === 'with-descendants' ? (
-                            <span
-                                className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
-                                aria-hidden="true"
-                            />
-                        ) : (
-                            <span>Copy all</span>
-                        )}
-                    </button>
+                        <button
+                            type="button"
+                            onClick={event => {
+                                event.stopPropagation();
+                                void handleExport(true);
+                            }}
+                            className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label={`Copy markdown for ${node.title} with descendants`}
+                            disabled={isPending}
+                        >
+                            {isPending && exportState.action === 'with-descendants' ? (
+                                <span
+                                    className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+                                    aria-hidden="true"
+                                />
+                            ) : (
+                                <span>Copy all</span>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {exportState.message && (
-                <div className="ml-14 mt-1 text-xs text-gray-400" role="status" aria-live="polite">
+                <div
+                    className="mt-1 text-xs text-gray-400"
+                    style={{paddingLeft: indentPadding + 48}}
+                    role="status"
+                    aria-live="polite"
+                >
                     {exportState.message}
                 </div>
             )}
 
             {isExpanded && children && children.length > 0 && (
-                <ul className="mt-2 space-y-1 border-t border-gray-800 pt-2 pl-0 list-none">
+                <ul className="mt-2 space-y-1 pl-0 list-none">
                     {children.map(child => (
                         <NavNode
                             key={child.internal_id}
@@ -314,7 +323,6 @@ export const NavNode: React.FC<NavNodeProps> = ({
                             selectedNodeId={selectedNodeId}
                             level={level + 1}
                             isSearchActive={isSearchActive}
-                            ancestry={[...ancestry, node.title]}
                         />
                     ))}
                 </ul>
@@ -451,9 +459,8 @@ const SideNav: React.FC<SideNavProps> = ({actId, onSelectNode, selectedNodeId}) 
                                 actId={actId}
                                 onSelectNode={onSelectNode}
                                 selectedNodeId={selectedNodeId}
-                                level={1}
+                                level={0}
                                 isSearchActive={isSearchActive}
-                                ancestry={[]}
                             />
                         ))}
                     </ul>
