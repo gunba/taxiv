@@ -16,8 +16,10 @@
 ### System Dependencies
 
 The ingestion pipeline rasterizes WMF/EMF assets on Linux. The backend container must include `imagemagick`,
-`libwmf-bin`, and `librsvg2-bin` (installed in `Dockerfile.backend`). If you run ingestion outside Docker, install the
-equivalent packages on your host first so WMF/EMF assets can be converted to PNG.
+`libreoffice-draw`, `ghostscript`, `libwmf-bin`, `librsvg2-bin`, and at least one TrueType font package (we ship
+`fonts-dejavu-core`) installed in `Dockerfile.backend`. ImageMagick shells out to LibreOffice Draw to produce PDFs,
+Ghostscript rasterizes those PDFs, and libwmf/rsvg handle the SVG fallback path. If you run ingestion outside Docker,
+install the equivalent packages on your host first so WMF/EMF assets can be converted to PNG.
 
 ## Directory Structure
 
