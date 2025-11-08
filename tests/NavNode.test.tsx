@@ -29,9 +29,8 @@ const renderNavNode = (overrides: Partial<HierarchyNode> = {}) => {
                 actId="act-1"
                 onSelectNode={vi.fn()}
                 selectedNodeId={null}
-                level={1}
+                level={0}
                 isSearchActive={false}
-                ancestry={[]}
             />
         </ul>,
     );
