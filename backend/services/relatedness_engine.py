@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict, deque
 from typing import Dict, List, Set, Tuple
 
-from sqlalchemy import or_, text
+from sqlalchemy import bindparam, or_, text
 from sqlalchemy.orm import Session
 
 from backend.models.legislation import (
@@ -109,7 +109,7 @@ def _semantic_neighbors(db: Session, provision_id: str, k: int = SEM_K) -> List[
 		ORDER BY vector <-> :vec
 		LIMIT :limit
 		"""
-	)
+	).bindparams(bindparam("vec", type_=Embedding.__table__.c.vector.type))
 	rows = db.execute(
 		sql,
 		{"vec": vector_param, "model": EMBED_MODEL, "pid": provision_id, "limit": k},

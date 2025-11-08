@@ -71,10 +71,13 @@ ingest/
 	* When defining pgvector HNSW indexes, always specify the operator class (`vector_l2_ops` for our MiniLM embeddings) or PostgreSQL will reject the DDL.
 	* The ingestion pipeline now computes only the baseline PageRank; Personalized PageRank fingerprints are computed
 	  lazily at query time through `backend/services/relatedness_engine.py`.
-    * `relatedness_fingerprint` rows are cached per provision with a `graph_version`. Bump the version after ingestion
-      using `python -m backend.manage_graph bump-version` (or let the pipeline do it automatically) to invalidate stale
-      caches. Use `python -m backend.manage_graph show-version` to inspect the current value.
-    * Case law / document chunks will reuse the same embeddings + ANN infrastructure once ingested.
+	* `relatedness_fingerprint` rows are cached per provision with a `graph_version`. Bump the version after ingestion
+	  using `python -m backend.manage_graph bump-version` (or let the pipeline do it automatically) to invalidate stale
+	  caches. Use `python -m backend.manage_graph show-version` to inspect the current value.
+	* Case law / document chunks will reuse the same embeddings + ANN infrastructure once ingested.
+	* When running raw SQL that binds a pgvector value (e.g., `_semantic_neighbors`), bind the `:vec` parameter with
+	  `bindparam("vec", type_=Embedding.__table__.c.vector.type)` so SQLAlchemy hands psycopg a pgvector-compatible
+	  payload instead of a bare `numpy.ndarray` (which triggers `can't adapt type 'numpy.ndarray'`).
 * **Database (LTree):**
     * The `provisions.hierarchy_path_ltree` column is the primary mechanism for organizing the legislative hierarchy.
     * The path format is `ActID.SanitizedLocalID1.SanitizedLocalID2...` (e.g.,
@@ -83,3 +86,28 @@ ingest/
   resides in `crud.py`.
 * **Type Hinting:** Utilize Python type hints strictly throughout the backend and ingestion code.
 * **ORM Quirks:** SQLAlchemy reserves the attribute name `metadata`. When working with `backend.models.semantic.Document`, use the `doc_metadata` attribute (it still maps to the `metadata` column) to avoid Declarative collisions.
+
+## MCP Server (fastmcp)
+
+* Start `db`, `backend`, and `mcp` together via `docker compose up db backend mcp`; the MCP container assumes
+  `BACKEND_BASE_URL=http://backend:8000`.
+* The FastMCP server only exposes an SSE transport, so clients must connect to `http://localhost:8765/sse` (note the `/sse`
+  suffix). Pointing a client at the root URL returns a 404 and the handshake fails with “Session terminated.”
+* Quick smoke test from inside the container:
+
+	```python
+	import asyncio
+	from fastmcp import Client
+
+	async def main():
+		async with Client("http://127.0.0.1:8765/sse") as client:
+			print([tool.name for tool in await client.list_tools()])
+			resp = await client.call_tool("unified_search", {"query": "s 6-5 ordinary income", "k": 3})
+			print(resp.data[:400])
+
+	asyncio.run(main())
+	```
+
+	This exercises `unified_search` end-to-end (backend + embeddings). In a separate snippet call `lookup_ref`,
+	`fetch_markdown`, and `get_breadcrumbs` with an `internal_id` such as `ITAA1997_Section_6-5` to ensure templates and
+	export pipelines respond with markdown.

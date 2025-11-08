@@ -1,3 +1,4 @@
+2025-11-08 - Bound pgvector parameters via bindparam in `_semantic_neighbors`, documented the fastmcp SSE flow, and validated MCP tools end-to-end.
 2025-02-17 - Trimmed WMF/EMF rasterized PNGs to remove blank PDF canvases and documented the behavior.
 2025-11-08 - Proxied /media through Vite and made ingestion media hashing deterministic with doc-level cleanup to stop duplicate PNGs.
 2025-02-14 - Specified the vector_l2_ops operator class for the embeddings HNSW index and documented the pgvector requirement.
