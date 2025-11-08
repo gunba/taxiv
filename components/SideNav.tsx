@@ -4,7 +4,7 @@ import {api} from '../utils/api';
 import {ChevronRightIcon, SearchIcon} from './Icons';
 import {exportMarkdownToClipboard} from '../utils/exportMarkdown';
 
-type ExportAction = 'single' | 'with-descendants';
+type ExportAction = 'with-descendants';
 
 interface ExportState {
     status: 'idle' | 'pending' | 'success' | 'error';
@@ -129,12 +129,12 @@ export const NavNode: React.FC<NavNodeProps> = ({
     }, []);
 
     const handleExport = useCallback(
-        async (includeDescendants: boolean) => {
+        async () => {
             if (exportState.status === 'pending') {
                 return;
             }
 
-            const action: ExportAction = includeDescendants ? 'with-descendants' : 'single';
+            const action: ExportAction = 'with-descendants';
             abortControllerRef.current?.abort();
             const controller = new AbortController();
             abortControllerRef.current = controller;
@@ -145,7 +145,7 @@ export const NavNode: React.FC<NavNodeProps> = ({
             try {
                 const result = await exportMarkdownToClipboard({
                     internalId: node.internal_id,
-                    includeDescendants,
+                    includeDescendants: true,
                     signal: controller.signal,
                 });
 
@@ -263,29 +263,10 @@ export const NavNode: React.FC<NavNodeProps> = ({
                             type="button"
                             onClick={event => {
                                 event.stopPropagation();
-                                void handleExport(false);
+                                void handleExport();
                             }}
                             className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                            aria-label={`Copy markdown for ${node.title}`}
-                            disabled={isPending}
-                        >
-                            {isPending && exportState.action === 'single' ? (
-                                <span
-                                    className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
-                                    aria-hidden="true"
-                                />
-                            ) : (
-                                <span>Copy</span>
-                            )}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={event => {
-                                event.stopPropagation();
-                                void handleExport(true);
-                            }}
-                            className="px-2 py-1 text-xs font-medium rounded bg-gray-800 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                            aria-label={`Copy markdown for ${node.title} with descendants`}
+                            aria-label={`Copy markdown for ${node.title} to clipboard`}
                             disabled={isPending}
                         >
                             {isPending && exportState.action === 'with-descendants' ? (
@@ -294,7 +275,7 @@ export const NavNode: React.FC<NavNodeProps> = ({
                                     aria-hidden="true"
                                 />
                             ) : (
-                                <span>Copy all</span>
+                                <span>Copy to clipboard</span>
                             )}
                         </button>
                     </div>
