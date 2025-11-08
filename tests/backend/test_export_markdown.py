@@ -140,7 +140,26 @@ def test_export_markdown_service_collects_related_data(monkeypatch):
 			hierarchy_path="ACT.Def1",
 			sibling_order=4,
 			content="Definition text with ![Symbol](symbol.png)",
-			references=[],
+			references=[
+				{
+					"target_ref_id": "ACT-200",
+					"snippet": "see ACT-200",
+					"target_title": "Definition Reference",
+					"target_internal_id": "def_ref",
+				},
+				{
+					"target_ref_id": "ACT-99",
+					"snippet": "already seen",
+					"target_title": "Referenced Node",
+					"target_internal_id": "ref",
+				},
+				{
+					"target_ref_id": "ACT-200",
+					"snippet": "duplicate",
+					"target_title": "Definition Reference",
+					"target_internal_id": "def_ref",
+				},
+			],
 			definitions=[
 				{
 					"term_text": "Secondary Term",
@@ -155,6 +174,16 @@ def test_export_markdown_service_collects_related_data(monkeypatch):
 			hierarchy_path="ACT.Def2",
 			sibling_order=5,
 			content="Terminal definition",
+			references=[],
+			definitions=[],
+		),
+		"def_ref": _make_detail(
+			internal_id="def_ref",
+			ref_id="ACT-200",
+			title="Definition Reference",
+			hierarchy_path="ACT.DefRef",
+			sibling_order=6,
+			content="Definition reference content",
 			references=[],
 			definitions=[],
 		),
@@ -175,6 +204,10 @@ def test_export_markdown_service_collects_related_data(monkeypatch):
 	assert "## Definitions used" in markdown
 	assert "### Definition One (DEF-1)" in markdown
 	assert "### Definition Two (DEF-2)" in markdown
+	assert markdown.count("### Definition Reference (ACT-200)") == 1
+	assert "```" in markdown
+	assert "### Definition Reference (ACT-200)" not in markdown.split("## Referenced nodes")[1].split("## Definitions used")[0]
+	assert "```\n### Definition Reference (ACT-200)\n\nDefinition reference content\n```" in markdown
 	assert "## Unresolved external references" in markdown
 	assert "- EXT-1 (from ACT-1) — external context" in markdown
 	assert "![Diagram]" not in markdown
