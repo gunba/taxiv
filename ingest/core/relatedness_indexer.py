@@ -19,6 +19,8 @@ try:
 except Exception:
 	SentenceTransformer = None
 
+from ingest.core.progress import progress_bar, progress_enabled
+
 # Types
 ProvisionId = str
 logger = logging.getLogger(__name__)
@@ -84,7 +86,8 @@ def _power_iteration_pagerank(
 	idx = {n: i for i, n in enumerate(nodes)}
 	r = [1.0 / N] * N  # uniform start
 	teleport_mass = (1.0 - gamma) / N
-	for _ in range(iters):
+	iter_progress = progress_bar(range(iters), desc="Power iteration", unit="iter", leave=False)
+	for _ in iter_progress:
 		new_r = [teleport_mass] * N
 		for u, nbrs in adj_norm.items():
 			pu = r[idx[u]]
@@ -94,6 +97,8 @@ def _power_iteration_pagerank(
 				for v, p in nbrs:
 					new_r[idx[v]] += gamma * pu * p
 		r = new_r
+	if hasattr(iter_progress, "close"):
+		iter_progress.close()
 	z = sum(r) or 1.0
 	r = [x / z for x in r]
 	return {n: r[idx[n]] for n in nodes}
@@ -172,7 +177,7 @@ def _compute_embeddings(
 		texts,
 		batch_size=cfg.embedding_batch_size,
 		normalize_embeddings=True,  # ensures cosine = dot
-		show_progress_bar=False
+		show_progress_bar=progress_enabled()
 	)
 	emb = np.asarray(emb, dtype=np.float32)
 	return ids, emb
@@ -195,7 +200,13 @@ def _build_semantic_knn(
 
 	N = len(ids)
 	k_eff = max(1, min(k, max(1, N - 1)))
-	for i in range(0, N, batch):
+	pbar_batches = progress_bar(
+		range(0, N, batch),
+		desc="Building semantic kNN",
+		unit="batch",
+		leave=False
+	)
+	for i in pbar_batches:
 		X = emb[i:i + batch]  # shape (b, d), already normalized
 		sims = np.matmul(X, emb.T)  # (b, N), cosine scores in [-1, 1]
 		for bi in range(sims.shape[0]):
@@ -220,6 +231,8 @@ def _build_semantic_knn(
 				if w > A_sem[u].get(v, 0.0):
 					A_sem[u][v] = w
 					A_sem[v][u] = w
+	if hasattr(pbar_batches, "close"):
+		pbar_batches.close()
 	return A_sem
 
 
@@ -250,12 +263,21 @@ def build_relatedness_index(
 
 	# 2) Build per-view adjacencies (raw weights)
 	A_cit = defaultdict(lambda: defaultdict(float))  # directed
-	for r in references_payload:
+	pbar_refs = progress_bar(
+		references_payload,
+		desc="Indexing citation edges",
+		unit="ref",
+		total=len(references_payload),
+		leave=False
+	)
+	for r in pbar_refs:
 		u = r["source_internal_id"]
 		v = r.get("target_internal_id")
 		if not v or u == v or (u not in prov_set) or (v not in prov_set):
 			continue
 		A_cit[u][v] += 1.0
+	if hasattr(pbar_refs, "close"):
+		pbar_refs.close()
 
 	A_h = defaultdict(lambda: defaultdict(float))  # undirected (add both directions)
 	for v, p in parent_of.items():
@@ -271,10 +293,19 @@ def build_relatedness_index(
 
 	# Term co-usage (P-P, symmetric) with IDF
 	term_map = defaultdict(set)  # term_text -> set(provision_id)
-	for t in defined_terms_usage_payload:
+	pbar_terms_usage = progress_bar(
+		defined_terms_usage_payload,
+		desc="Collecting term usages",
+		unit="term",
+		total=len(defined_terms_usage_payload),
+		leave=False
+	)
+	for t in pbar_terms_usage:
 		u = t["source_internal_id"]
 		if u in prov_set:
 			term_map[t["term_text"].strip().lower()].add(u)
+	if hasattr(pbar_terms_usage, "close"):
+		pbar_terms_usage.close()
 
 	A_t = defaultdict(lambda: defaultdict(float))
 	for term, plist_set in term_map.items():
@@ -316,9 +347,18 @@ def build_relatedness_index(
 
 	# 5) Fingerprints (per provision seed)
 	fingerprints = {}
-	for seed in prov_ids:
+	pbar_fingerprints = progress_bar(
+		prov_ids,
+		desc="Computing relatedness fingerprints",
+		unit="prov",
+		total=len(prov_ids),
+		leave=True
+	)
+	for seed in pbar_fingerprints:
 		top_list, captured = _approximate_ppr_push(A_norm, seed, cfg.gamma, cfg.eps, cfg.top_k)
 		neighbors = [{"prov_id": vid, "ppr_mass": float(m)} for vid, m in top_list]
 		fingerprints[seed] = (neighbors, float(captured))
+	if hasattr(pbar_fingerprints, "close"):
+		pbar_fingerprints.close()
 
 	return baseline_pi, fingerprints

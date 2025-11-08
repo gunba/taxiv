@@ -10,16 +10,8 @@ from typing import Any, Dict, Optional, Pattern, List, Tuple, Set
 import docx
 from PIL import Image, UnidentifiedImageError
 
-# We use tqdm for progress bars during parsing
-try:
-	from tqdm import tqdm
-except ImportError:
-	# Fallback if tqdm is not installed
-	def tqdm(iterable=None, **kwargs):
-		return iterable if iterable is not None else []
-
-
-	tqdm.write = print
+# We use progress helpers for optional progress bars during parsing
+from ingest.core.progress import progress_bar
 
 # Standard imports assuming 'ingest' is in the PYTHONPATH (e.g., inside Docker)
 from .config import Config
@@ -826,7 +818,7 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 
 		block_iterator = iter_block_items(doc)
 
-		progress_bar_doc = tqdm(
+		progress_bar_doc = progress_bar(
 			block_iterator, total=total_blocks,
 			desc=f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
 			unit="block", leave=False, ncols=100, position=2

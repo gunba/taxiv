@@ -6,31 +6,7 @@ import sqlite3
 import threading
 from typing import Dict, List, Tuple
 
-# We import tqdm for thread-safe printing during concurrent operations
-try:
-	from tqdm import tqdm
-except ImportError:
-	# Fallback if tqdm is not installed
-	class tqdm:
-		@staticmethod
-		def write(msg):
-			print(msg)
-
-		# Define a dummy call signature for the progress bar usage in the runner
-		def __call__(self, *args, **kwargs):
-			return self
-
-		def update(self, n=1):
-			pass
-
-		def close(self):
-			pass
-
-		def set_description(self, desc, refresh=True):
-			pass
-
-		def set_postfix_str(self, s, refresh=True):
-			pass
+from ingest.core.progress import progress_write
 
 # Import necessary libraries.
 try:
@@ -150,7 +126,7 @@ class LLMCache:
 			cursor.execute('CREATE INDEX IF NOT EXISTS idx_model_name ON cache (model_name)')
 			conn.commit()
 		except sqlite3.Error as e:
-			tqdm.write(f"Database error during initialization: {e}")
+			progress_write(f"Database error during initialization: {e}")
 		finally:
 			if conn:
 				conn.close()
@@ -176,9 +152,9 @@ class LLMCache:
 					# Return response JSON and the token counts
 					return result[0], result[1], result[2]
 			except sqlite3.OperationalError as e:
-				tqdm.write(f"Database operational error (e.g., locked) during cache retrieval: {e}")
+				progress_write(f"Database operational error (e.g., locked) during cache retrieval: {e}")
 			except sqlite3.Error as e:
-				tqdm.write(f"Database error during cache retrieval: {e}")
+				progress_write(f"Database error during cache retrieval: {e}")
 			finally:
 				if conn:
 					conn.close()
@@ -198,9 +174,9 @@ class LLMCache:
                 ''', (hash_key, model_name, text_chunk, response_json, input_tokens, output_tokens))
 				conn.commit()
 			except sqlite3.OperationalError as e:
-				tqdm.write(f"Database operational error (e.g., locked) during cache insertion: {e}")
+				progress_write(f"Database operational error (e.g., locked) during cache insertion: {e}")
 			except sqlite3.Error as e:
-				tqdm.write(f"Database error during cache insertion: {e}")
+				progress_write(f"Database error during cache insertion: {e}")
 			finally:
 				if conn:
 					conn.close()
@@ -262,7 +238,7 @@ def initialize_gemini_client():
 	api_key = os.environ.get(API_KEY_ENV_VAR)
 
 	if not api_key:
-		tqdm.write(
+		progress_write(
 			f"Warning: Gemini API Key not found in environment variable '{API_KEY_ENV_VAR}'. Proceeding without LLM features.")
 		return
 
@@ -289,10 +265,10 @@ def initialize_gemini_client():
 			safety_settings=safety_settings
 		)
 
-		tqdm.write(f"Successfully initialized Gemini model: {LLM_MODEL_NAME} (JSON Mode)")
+		progress_write(f"Successfully initialized Gemini model: {LLM_MODEL_NAME} (JSON Mode)")
 
 	except Exception as e:
-		tqdm.write(f"Warning: Error initializing Gemini Client ({str(e)}). Proceeding without LLM features.")
+		progress_write(f"Warning: Error initializing Gemini Client ({str(e)}). Proceeding without LLM features.")
 		traceback.print_exc()
 		LLM_CLIENT = None
 
@@ -320,13 +296,13 @@ def _parse_llm_response(response_text: str) -> List[Tuple[str, str]]:
 					if normalized_ref and text_extract:
 						references.append((str(normalized_ref).strip(), str(text_extract).strip()))
 				else:
-					tqdm.write(f"Warning: Gemini returned non-dict item in JSON list. Item: {str(item)[:100]}")
+					progress_write(f"Warning: Gemini returned non-dict item in JSON list. Item: {str(item)[:100]}")
 		elif data:
-			tqdm.write(f"Warning: Gemini returned unexpected JSON type (expected list). Type: {type(data)}")
+			progress_write(f"Warning: Gemini returned unexpected JSON type (expected list). Type: {type(data)}")
 
 	except json.JSONDecodeError as e:
 		# Regex Salvage Logic
-		tqdm.write(f"Warning: Error parsing Gemini JSON ({str(e)}). Attempting regex salvage...")
+		progress_write(f"Warning: Error parsing Gemini JSON ({str(e)}). Attempting regex salvage...")
 		salvaged_references = []
 
 		try:
@@ -345,16 +321,16 @@ def _parse_llm_response(response_text: str) -> List[Tuple[str, str]]:
 					continue
 
 			if salvaged_references:
-				tqdm.write(f"Successfully salvaged {len(salvaged_references)} entries.")
+				progress_write(f"Successfully salvaged {len(salvaged_references)} entries.")
 				references = salvaged_references
 			else:
-				tqdm.write(f"Salvage failed. Snippet: {response_text[:100]}...")
+				progress_write(f"Salvage failed. Snippet: {response_text[:100]}...")
 
 		except Exception as salvage_error:
-			tqdm.write(f"Error during salvage attempt: {str(salvage_error)}. Snippet: {response_text[:100]}...")
+			progress_write(f"Error during salvage attempt: {str(salvage_error)}. Snippet: {response_text[:100]}...")
 
 	except (TypeError, AttributeError) as e:
-		tqdm.write(f"Warning: Error processing Gemini JSON structure ({str(e)}). Snippet: {response_text[:100]}...")
+		progress_write(f"Warning: Error processing Gemini JSON structure ({str(e)}). Snippet: {response_text[:100]}...")
 
 	unique_sorted_references = sorted(list(set(references)), key=lambda x: x[0])
 	return unique_sorted_references
@@ -421,7 +397,7 @@ def extract_references_with_llm(text_chunk: str) -> tuple[List[Tuple[str, str]],
 		return references, input_tokens, output_tokens
 
 	except Exception as e:
-		tqdm.write(f"Error calling Gemini API: {type(e).__name__}: {str(e)}")
+		progress_write(f"Error calling Gemini API: {type(e).__name__}: {str(e)}")
 		return [], 0, 0
 
 
@@ -461,5 +437,5 @@ def process_section_llm_task(section: Dict, hierarchy_context: List[str]):
 	# Costs are updated within extract_references_with_llm
 
 	except Exception as e:
-		tqdm.write(
+		progress_write(
 			f"\nWarning: LLM task failed for section {section.get('title', 'Unknown')}: {type(e).__name__}: {str(e)}")
