@@ -1,3 +1,4 @@
+2025-11-08 - Added info-level logging to relatedness indexer to surface ingestion progress during PageRank and fingerprint stages.
 2025-11-08 - Added LibreOffice/Ghostscript/font dependencies to Dockerfile.backend and documented rasterization requirements.
 2024-06-09 - Installed WMF/EMF rasterization packages in Dockerfile.backend and documented the dependency.
 2024-05-07 - Embed definition reference sections in markdown export and expanded tests.
