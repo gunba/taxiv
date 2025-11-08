@@ -48,9 +48,8 @@ describe('NavNode export controls', () => {
 
         renderNavNode();
 
-        const copyButton = screen.getByRole('button', {name: 'Copy markdown for Sample Node', exact: true});
-        const copyAllButton = screen.getByRole('button', {
-            name: 'Copy markdown for Sample Node with descendants',
+        const copyButton = screen.getByRole('button', {
+            name: 'Copy markdown for Sample Node to clipboard',
             exact: true,
         });
 
@@ -69,7 +68,7 @@ describe('NavNode export controls', () => {
         expect(mockedExportMarkdown).toHaveBeenCalledWith(
             expect.objectContaining({
                 internalId: 'node-1',
-                includeDescendants: false,
+                includeDescendants: true,
             }),
         );
 
@@ -79,8 +78,7 @@ describe('NavNode export controls', () => {
     });
 
     it('disables actions while export is pending and prevents concurrent requests', async () => {
-        let resolveExport: (value: { status: 'success'; markdown: string }) => void = () => {
-        };
+        let resolveExport: (value: { status: 'success'; markdown: string }) => void = () => {};
         mockedExportMarkdown.mockImplementation(
             () =>
                 new Promise(resolve => {
@@ -91,15 +89,14 @@ describe('NavNode export controls', () => {
 
         renderNavNode();
 
-        const copyButton = screen.getByRole('button', {name: 'Copy markdown for Sample Node', exact: true});
-        const copyAllButton = screen.getByRole('button', {
-            name: 'Copy markdown for Sample Node with descendants',
+        const copyButton = screen.getByRole('button', {
+            name: 'Copy markdown for Sample Node to clipboard',
             exact: true,
         });
         const row = copyButton.closest('div')?.parentElement as HTMLElement;
         await user.hover(row);
 
-        await user.click(copyAllButton);
+        await user.click(copyButton);
 
         expect(mockedExportMarkdown).toHaveBeenCalledTimes(1);
         expect(mockedExportMarkdown).toHaveBeenCalledWith(
@@ -110,7 +107,6 @@ describe('NavNode export controls', () => {
         );
 
         expect(copyButton).toBeDisabled();
-        expect(copyAllButton).toBeDisabled();
 
         await user.click(copyButton);
         expect(mockedExportMarkdown).toHaveBeenCalledTimes(1);
@@ -119,7 +115,6 @@ describe('NavNode export controls', () => {
 
         await waitFor(() => {
             expect(copyButton).not.toBeDisabled();
-            expect(copyAllButton).not.toBeDisabled();
         });
     });
 
@@ -132,14 +127,14 @@ describe('NavNode export controls', () => {
 
         renderNavNode();
 
-        const copyAllButton = screen.getByRole('button', {
-            name: 'Copy markdown for Sample Node with descendants',
+        const copyButton = screen.getByRole('button', {
+            name: 'Copy markdown for Sample Node to clipboard',
             exact: true,
         });
-        const row = copyAllButton.closest('div')?.parentElement as HTMLElement;
+        const row = copyButton.closest('div')?.parentElement as HTMLElement;
         await user.hover(row);
 
-        await user.click(copyAllButton);
+        await user.click(copyButton);
 
         await waitFor(() => {
             expect(screen.getByRole('status')).toHaveTextContent('Network unavailable');
