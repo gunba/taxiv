@@ -5,3 +5,5 @@
 2025-02-14 - Realigned SideNav expand controls and condensed export button to clipboard icon.
 2025-11-08 - Centered SideNav rows, increased label size, and removed row guide line.
 2025-11-08 - Added sentence-transformers dependency to restore ingestion semantic view.
+2025-11-08 - Added configurable ingestion progress helpers and instrumented pipeline stages.
+2025-11-08 - Instrumented relatedness indexer workflows with ingestion progress helpers.

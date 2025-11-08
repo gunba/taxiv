@@ -7,7 +7,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from tqdm import tqdm
+from ingest.core.progress import progress_bar, progress_write
 
 # Import core modules
 # MODIFICATION: Import the module itself
@@ -100,14 +100,14 @@ def process_and_analyze_definitions_concurrent(pbar_llm, executor, config: Confi
 
 	# 3. Wait for completion and update results
 	total_tasks = len(futures) if futures else len(DEFINITIONS_995_1)
-	pbar_defs = tqdm(desc="Enriching Definitions", total=total_tasks, unit="def", ncols=100, position=2, leave=False)
+	pbar_defs = progress_bar(desc="Enriching Definitions", total=total_tasks, unit="def", ncols=100, position=2, leave=False)
 
 	if futures:
 		for future, term, temp_section in futures:
 			try:
 				future.result()
 			except Exception as e:
-				tqdm.write(f"Error processing definition future for '{term}': {str(e)}")
+				progress_write(f"Error processing definition future for '{term}': {str(e)}")
 
 			pbar_defs.update(1)
 			pbar_llm.update(1)
@@ -154,7 +154,7 @@ def run_parsing_and_enrichment(config: Config):
 		logger.warning("CRITICAL WARNING: Proceeding without LLM reference extraction.")
 
 	# Initialize the LLM progress bar (Position 1)
-	pbar_llm = tqdm(desc="Gemini Processing Status", unit="item", ncols=100, position=1, leave=True)
+	pbar_llm = progress_bar(desc="Gemini Processing Status", unit="item", ncols=100, position=1, leave=True)
 	pbar_llm.set_postfix_str("Cost: $0.0000")
 
 	# Initialize Thread Pool Executor
@@ -184,7 +184,7 @@ def run_parsing_and_enrichment(config: Config):
 		# --- PASS 2: Full Structure Extraction and Enrichment ---
 		logger.info("\n--- Pass 2: Full Structure Extraction and Enrichment ---")
 
-		pbar_volumes = tqdm(range(1, 11), desc="Overall Volume Processing", unit="vol", ncols=100, position=0)
+		pbar_volumes = progress_bar(range(1, 11), desc="Overall Volume Processing", unit="vol", ncols=100, position=0)
 
 		for i in pbar_volumes:
 			volume_num = f"{i:02d}"
@@ -214,7 +214,7 @@ def run_parsing_and_enrichment(config: Config):
 						try:
 							future.result()  # Wait and check for exceptions
 						except Exception as e:
-							tqdm.write(f"Error in completed future for Volume {volume_num}: {str(e)}")
+							progress_write(f"Error in completed future for Volume {volume_num}: {str(e)}")
 
 						pbar_llm.update(1)
 
@@ -228,7 +228,7 @@ def run_parsing_and_enrichment(config: Config):
 				recursive_finalize_structure(structured_data)
 
 				if not structured_data and i <= 10:
-					tqdm.write(f"\nWarning: No structure extracted from {filename}.")
+					progress_write(f"\nWarning: No structure extracted from {filename}.")
 
 				# Save the volume JSON (Intermediate Output)
 				output_filename = f"ITAA1997_VOL{volume_num}_intermediate.json"
@@ -237,12 +237,12 @@ def run_parsing_and_enrichment(config: Config):
 				try:
 					with open(output_filepath, 'w', encoding='utf-8') as f:
 						json.dump(structured_data, f, indent=2, ensure_ascii=False)
-					tqdm.write(f"Successfully saved intermediate file: {output_filename}")
+					progress_write(f"Successfully saved intermediate file: {output_filename}")
 				except Exception as e:
-					tqdm.write(f"Error saving {output_filename}: {str(e)}")
+					progress_write(f"Error saving {output_filename}: {str(e)}")
 			else:
 				if i <= 10:
-					tqdm.write(f"File not found: {filepath}")
+					progress_write(f"File not found: {filepath}")
 
 	# Close the progress bars
 	pbar_llm.close()
@@ -299,11 +299,19 @@ def run_analysis_and_loading(config: Config):
 
 	# --- Load Volume Files First ---
 	# This establishes the main structure and LTree paths.
-	for i in range(1, 11):
+	volume_indices = range(config.START_VOLUME, config.END_VOLUME + 1)
+	pbar_pass1_volumes = progress_bar(
+		volume_indices,
+		desc="Pass 1: Loading Volumes",
+		unit="vol",
+		ncols=100,
+	)
+	for i in pbar_pass1_volumes:
 		volume_num = f"{i:02d}"
 		filepath = os.path.join(config.OUTPUT_INTERMEDIATE_DIR, FILE_PATTERN.format(volume_num))
 
 		if os.path.exists(filepath):
+			pbar_pass1_volumes.set_description(f"Pass 1: Volume {volume_num}", refresh=True)
 			logger.info(f"Processing VOL{volume_num} (Pass 1)...")
 			processed_files += 1
 			try:
@@ -315,6 +323,9 @@ def run_analysis_and_loading(config: Config):
 			except Exception as e:
 				logger.error(f"Error (Pass 1) processing {filepath}: {e}")
 				logger.error(traceback.format_exc())
+		else:
+			pbar_pass1_volumes.set_description(f"Pass 1: Missing Volume {volume_num}", refresh=True)
+	pbar_pass1_volumes.close()
 
 	# --- Load Definitions File (After main structure) ---
 	# This allows definitions to link to their parent (e.g., 995-1) if it was processed above.
@@ -340,7 +351,14 @@ def run_analysis_and_loading(config: Config):
 				parent_internal_id = None
 				parent_ltree_path = ACT_LTREE_ROOT
 
-			for index, (term, data) in enumerate(definitions_data.items()):
+			definition_items = list(definitions_data.items())
+			pbar_definitions = progress_bar(
+				definition_items,
+				desc="Pass 1: Integrating Definitions",
+				unit="def",
+				ncols=100,
+			)
+			for index, (term, data) in enumerate(pbar_definitions):
 				# Reconstruct the synthetic node structure (Logic from original script)
 				sanitized_term_for_id = re.sub(r'[^\w\-]+', '_', term)
 				if not sanitized_term_for_id:
@@ -359,6 +377,7 @@ def run_analysis_and_loading(config: Config):
 				}
 				# Process the definition node, passing the parent context
 				analyzer.process_node_pass1(synthetic_node, parent_internal_id, parent_ltree_path, sibling_index=index)
+			pbar_definitions.close()
 
 		except Exception as e:
 			logger.error(f"Error (Pass 1) loading definitions file {def_filepath}: {e}")

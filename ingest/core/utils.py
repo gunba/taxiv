@@ -15,6 +15,7 @@ except ImportError:
 	Table = object
 	Paragraph = object
 
+from ingest.core.progress import progress_write
 
 # =============================================================================
 # DOCX Iteration and Formatting Helpers
@@ -65,12 +66,7 @@ def recursive_finalize_structure(structure):
 	"""Recursively finalizes data structures (sorts references, sorts terms) after processing."""
 	# This converts Sets (used during concurrent processing) to sorted Lists (for final JSON output).
 
-	# Import tqdm only if needed for printing warnings, to avoid hard dependency in utils
-	try:
-		from tqdm import tqdm
-		write_fn = tqdm.write
-	except ImportError:
-		write_fn = print
+	write_fn = progress_write
 
 	if isinstance(structure, list):
 		for item in structure:

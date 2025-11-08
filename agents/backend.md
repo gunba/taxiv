@@ -44,6 +44,8 @@ ingest/
         2. **Phase B (Analysis & Loading):** Intermediate JSON is analyzed (graph analysis, LTree calculation, reference
            normalization) and bulk loaded into PostgreSQL.
     * LLM interactions MUST use `ingest/core/llm_extraction.py` to utilize the cache.
+    * Progress reporting across ingestion phases is handled via `ingest/core/progress.py`; set the `INGEST_PROGRESS`
+      environment variable to `0`/`false` to disable progress bars in non-interactive environments.
 * **Database (LTree):**
     * The `provisions.hierarchy_path_ltree` column is the primary mechanism for organizing the legislative hierarchy.
     * The path format is `ActID.SanitizedLocalID1.SanitizedLocalID2...` (e.g.,
