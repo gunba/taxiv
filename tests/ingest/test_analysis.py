@@ -52,3 +52,43 @@ def test_process_node_pass1_assigns_hierarchy_path_without_local_id(monkeypatch)
 	assert child_path.startswith("ITAA1997.Division_5.Guide_")
 	assert child_internal_id is not None
 	assert child_entry["hierarchy_path_ltree"] == Ltree(child_path)
+
+
+def test_process_node_pass1_offsets_root_siblings_across_batches():
+	analyzer = GraphAnalyzer(default_act_id="ITAA1997")
+	act_root = sanitize_for_ltree("ITAA1997")
+
+	chapter_nodes = [
+		{
+			"ref_id": "ITAA1997:Chapter:1",
+			"id": "Chapter_1",
+			"type": "Chapter",
+			"title": "Chapter 1",
+			"children": [],
+		},
+		{
+			"ref_id": "ITAA1997:Chapter:2",
+			"id": "Chapter_2",
+			"type": "Chapter",
+			"title": "Chapter 2",
+			"children": [],
+		},
+		{
+			"ref_id": "ITAA1997:Chapter:5",
+			"id": "Chapter_5",
+			"type": "Chapter",
+			"title": "Chapter 5",
+			"children": [],
+		},
+	]
+
+	# First "batch" provides sequential sibling indexes.
+	analyzer.process_node_pass1(chapter_nodes[0], ltree_path=act_root, sibling_index=0)
+	analyzer.process_node_pass1(chapter_nodes[1], ltree_path=act_root, sibling_index=1)
+
+	# Next batch restarts at zero, but we expect the analyzer to continue ordering.
+	analyzer.process_node_pass1(chapter_nodes[2], ltree_path=act_root, sibling_index=0)
+
+	assert analyzer.node_registry["ITAA1997_Chapter_1"]["sibling_order"] == 0
+	assert analyzer.node_registry["ITAA1997_Chapter_2"]["sibling_order"] == 1
+	assert analyzer.node_registry["ITAA1997_Chapter_5"]["sibling_order"] == 2

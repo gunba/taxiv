@@ -90,6 +90,7 @@ class GraphAnalyzer:
 		self.default_act_id = default_act_id
 		self.node_registry: Dict[str, Dict[str, Any]] = {}
 		self.child_offsets: Dict[str, int] = {}
+		self.root_sibling_next_index = 0
 		# Registry key format: ACT/ID (Standardized for cross-act lookups)
 		self.id_type_registry: Dict[str, str] = {}
 		self.reverse_references: Dict[str, Set[str]] = {}
@@ -193,8 +194,13 @@ class GraphAnalyzer:
 			retrieved_ltree = self.node_registry[internal_id].get("hierarchy_path_ltree")
 			if isinstance(retrieved_ltree, Ltree):
 				current_ltree_path = str(retrieved_ltree)
-		if sibling_index is not None and self.node_registry[internal_id].get("sibling_order") is None:
-			self.node_registry[internal_id]["sibling_order"] = sibling_index
+		resolved_sibling_index = sibling_index
+		if parent_internal_id is None:
+			resolved_sibling_index = self._resolve_root_sibling_index(resolved_sibling_index)
+		if resolved_sibling_index is not None and self.node_registry[internal_id].get("sibling_order") is None:
+			self.node_registry[internal_id]["sibling_order"] = resolved_sibling_index
+			if parent_internal_id is None:
+				self.root_sibling_next_index = max(self.root_sibling_next_index, resolved_sibling_index + 1)
 		# else: current_ltree_path remains as passed in (ltree_path)
 
 		node_entry = self.node_registry[internal_id]
@@ -223,6 +229,22 @@ class GraphAnalyzer:
 		updated_offset = parent_offset + new_assignments
 		self.child_offsets[internal_id] = updated_offset
 		node_entry["child_offset"] = updated_offset
+
+	def _resolve_root_sibling_index(self, provided_index: Any) -> int | None:
+		"""
+		Ensures top-level nodes receive monotonically increasing sibling_order values even when
+		subsequent batches restart their local indexes.
+		"""
+		if provided_index is None:
+			return self.root_sibling_next_index
+		try:
+			value = int(provided_index)
+		except (TypeError, ValueError):
+			return self.root_sibling_next_index
+
+		if value < self.root_sibling_next_index:
+			return self.root_sibling_next_index + value
+		return value
 
 	# --- PASS 2: Reference Validation ---
 

@@ -49,14 +49,16 @@ ingest/
 ## Patterns
 
 * **Data Ingestion:**
-    * Pipelines are modularized by Act (`ingest/pipelines/[act_id]`).
-    * Ingestion follows a two-phase approach:
-        1. **Phase A (Parsing & Enrichment):** Raw data is parsed, structured, and enriched using LLM (with caching).
-           Output is intermediate JSON.
-        2. **Phase B (Analysis & Loading):** Intermediate JSON is analyzed (graph analysis, LTree calculation, reference
-           normalization) and bulk loaded into PostgreSQL.
-* Media extraction now wipes the act/document media directory at the start of parsing and derives PNG filenames from
-  the source metafile bytes (not the rasterized output) so reruns regenerate assets without producing duplicate PNGs.
+	* Pipelines are modularized by Act (`ingest/pipelines/[act_id]`).
+	* Ingestion follows a two-phase approach:
+		1. **Phase A (Parsing & Enrichment):** Raw data is parsed, structured, and enriched using LLM (with caching).
+		   Output is intermediate JSON.
+		2. **Phase B (Analysis & Loading):** Intermediate JSON is analyzed (graph analysis, LTree calculation, reference
+		   normalization) and bulk loaded into PostgreSQL.
+	* GraphAnalyzer maintains a root-level sibling counter so multi-volume imports cannot accidentally reset
+	  `sibling_order` for top-level provisions; callers do not need to manually offset chapter indexes between batches.
+	* Media extraction now wipes the act/document media directory at the start of parsing and derives PNG filenames from
+	  the source metafile bytes (not the rasterized output) so reruns regenerate assets without producing duplicate PNGs.
 * WMF/EMF rasterization output is auto-trimmed after conversion so the stored PNGs do not retain the blank 595x842 PDF
   canvas that libreoffice/ghostscript introduces.
     * Phase B reruns now clear act-scoped `baseline_pagerank`, `relatedness_fingerprint`, and pgvector embeddings before deleting provisions, so rerunning the loader is safe and won’t hit FK/unique violations.
