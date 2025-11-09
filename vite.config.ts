@@ -7,6 +7,7 @@ export default defineConfig(() => ({
     server: {
         port: 3000,
         host: '0.0.0.0',
+        allowedHosts: ['raja-block.bnr.la'],
         // NEW: Proxy configuration
         proxy: {
             // Proxy requests starting with /api

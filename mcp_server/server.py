@@ -16,7 +16,7 @@ from typing import Any, Dict
 import httpx
 from fastmcp import FastMCP
 
-from backend.services.mcp_formatter import format_provision_detail_md, format_search_results_md
+from mcp_server.mcp_formatter import format_provision_detail_md, format_search_results_md
 
 BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://backend:8000")
 REQUEST_TIMEOUT = float(os.environ.get("MCP_HTTP_TIMEOUT", "30"))

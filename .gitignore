@@ -25,10 +25,16 @@ dist-ssr
 *.docx
 *.wmf
 *.emf
-*.png
+# Binary ingestion outputs (including media) shouldn't be checked in.
+ingest/output/**/*
+ingest/media/**/*
+
+# Deployment artifacts
+/backups/
 
 #
 .env
+/agents/deployment.md
 
 # Project artifacts
 /dev/
