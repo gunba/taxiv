@@ -130,6 +130,14 @@ def test_format_paragraph_markdown_handles_nested_lists():
 	assert content == expected
 
 
+
+def test_list_tracker_clamps_missing_parent_levels():
+        formats = {('2', 1): 'decimal'}
+        tracker = parser.ListStateTracker()
+        orphan = FakeParagraph('Orphan nested', '2', 1, formats)
+        content = parser.format_paragraph_markdown(orphan, orphan.text, tracker, False, '')
+        assert content == '1. Orphan nested\n'
+
 def test_process_definition_content_preserves_list_markdown(monkeypatch):
 	formats, paragraphs = _build_paragraphs_for_lists()
 	monkeypatch.setattr(parser, 'Paragraph', FakeParagraph)
