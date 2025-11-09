@@ -3,6 +3,7 @@ import {HierarchyNode} from '../types';
 import {api} from '../utils/api';
 import {ChevronRightIcon, ClipboardIcon, SearchIcon} from './Icons';
 import {useToast} from './ToastProvider';
+import {copyToClipboard} from '../utils/clipboard';
 
 type ChildrenCache = Record<string, HierarchyNode[]>;
 type LoadingChildrenState = Record<string, boolean>;
@@ -83,10 +84,7 @@ export const NavNode: React.FC<NavNodeProps> = ({
         setIsCopying(true);
         try {
             const markdown = await onCopyMarkdown(node);
-            if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-                throw new Error('Clipboard API is unavailable');
-            }
-            await navigator.clipboard.writeText(markdown);
+            await copyToClipboard(markdown);
             showToast({
                 variant: 'success',
                 title: 'Markdown copied',

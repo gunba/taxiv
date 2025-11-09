@@ -5,11 +5,17 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {HierarchyNode} from '@/types';
 import {NavNode} from '@/components/SideNav';
 
+const copyToClipboardMock = vi.fn<(text: string) => Promise<void>>().mockResolvedValue();
+
 const showToastMock = vi.fn();
 
 vi.mock('@/components/ToastProvider', () => ({
     ToastProvider: ({children}: { children: React.ReactNode }) => <>{children}</>,
     useToast: () => ({showToast: showToastMock}),
+}));
+
+vi.mock('@/utils/clipboard', () => ({
+    copyToClipboard: (text: string) => copyToClipboardMock(text),
 }));
 
 const baseNode: HierarchyNode = {
@@ -52,33 +58,16 @@ const renderNavNode = (
     };
 };
 
-const originalClipboard = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
-
-const getClipboardMock = () =>
-    (window.navigator.clipboard as { writeText: ReturnType<typeof vi.fn> }).writeText;
-
 beforeEach(() => {
     vi.restoreAllMocks();
     showToastMock.mockReset();
-    Object.defineProperty(window.navigator, 'clipboard', {
-        configurable: true,
-        value: {
-            writeText: vi.fn(),
-        },
-    });
+    copyToClipboardMock.mockReset();
+    copyToClipboardMock.mockResolvedValue();
 });
 
 afterEach(() => {
     cleanup();
     vi.clearAllMocks();
-});
-
-afterAll(() => {
-    if (originalClipboard) {
-        Object.defineProperty(window.navigator, 'clipboard', originalClipboard);
-    } else {
-        delete (window.navigator as { clipboard?: unknown }).clipboard;
-    }
 });
 
 describe('NavNode export controls', () => {
@@ -107,7 +96,7 @@ describe('NavNode export controls', () => {
         expect(onCopyMarkdown).toHaveBeenCalledWith(expect.objectContaining({internal_id: 'node-1'}));
 
         await waitFor(() => {
-            expect(getClipboardMock()).toHaveBeenCalledWith('# heading');
+            expect(copyToClipboardMock).toHaveBeenCalledWith('# heading');
         });
 
         expect(showToastMock).toHaveBeenCalledWith(
@@ -152,7 +141,7 @@ describe('NavNode export controls', () => {
             expect(copyButton).not.toBeDisabled();
         });
 
-        expect(getClipboardMock()).toHaveBeenCalledWith('## done');
+        expect(copyToClipboardMock).toHaveBeenCalledWith('## done');
     });
 
     it('surfaces error feedback when export fails', async () => {

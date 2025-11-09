@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {api, unifiedSearch, type UnifiedSearchItem} from '../utils/api';
 import {CloseIcon, ClipboardIcon, SearchIcon} from './Icons';
+import {copyToClipboard} from '../utils/clipboard';
 
 interface SemanticSearchModalProps {
 	isOpen: boolean;
@@ -103,7 +104,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({isOpen, onClos
 		setError(null);
 		try {
 			const detail = await api.getProvisionDetail(result.id);
-			await navigator.clipboard.writeText(JSON.stringify(detail, null, 2));
+			await copyToClipboard(JSON.stringify(detail, null, 2));
 			setCopiedJsonId(result.id);
 			if (jsonCopyTimeoutRef.current) {
 				window.clearTimeout(jsonCopyTimeoutRef.current);
@@ -122,7 +123,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({isOpen, onClos
 		setError(null);
 		try {
 			const markdown = await api.getProvisionDetailMarkdown(result.id);
-			await navigator.clipboard.writeText(markdown);
+			await copyToClipboard(markdown);
 			setCopiedMarkdownId(result.id);
 			if (markdownCopyTimeoutRef.current) {
 				window.clearTimeout(markdownCopyTimeoutRef.current);

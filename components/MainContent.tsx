@@ -6,6 +6,7 @@ import {ChevronRightIcon, ClipboardIcon} from './Icons';
 import {api} from '../utils/api';
 import {formatNodeHeading} from '../utils/nodeFormatting';
 import {sortProvisions} from '../utils/provisionSort';
+import {copyToClipboard} from '../utils/clipboard';
 
 interface MainContentProps {
     node: TaxDataObject | null;
@@ -121,12 +122,12 @@ const MainContent: React.FC<MainContentProps> = ({
         };
     }, [node]);
 
-    const copyToClipboard = useCallback(() => {
+    const handleCopyToClipboard = useCallback(() => {
         if (!topProvision || !topProvision.content_md) return;
         const {markdownHeading} = formatNodeHeading(topProvision);
         const heading = markdownHeading || topProvision.title || topProvision.ref_id;
         const markdown = `# ${heading}\n\n${topProvision.content_md}\n\n`;
-        navigator.clipboard.writeText(markdown).catch(err => console.error('Failed to copy text: ', err));
+        copyToClipboard(markdown).catch(err => console.error('Failed to copy text: ', err));
     }, [topProvision]);
 
     const loadNextProvision = useCallback(async () => {
@@ -248,7 +249,7 @@ const MainContent: React.FC<MainContentProps> = ({
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={copyToClipboard}
+                            onClick={handleCopyToClipboard}
                                     className="p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-white transition-colors shrink-0 ml-4"
                                     aria-label="Copy content to clipboard"
                                 >
