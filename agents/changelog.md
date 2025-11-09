@@ -1,3 +1,5 @@
+2025-02-14 - Added deployment/capacity planning notes for Qwen3 embeddings to `agents/backend.md`, covering CPU memory, throughput, and scaling guidance.
+2025-02-14 - Swapped the backend container to a multi-worker uvicorn launcher (`scripts/start-backend.sh`), documented the new concurrency env vars, bumped SQLAlchemy pool defaults, and raised Postgres max connections in compose.
 2025-11-09 - Added the `/api/provisions/markdown_subtree` endpoint and rewired SideNav copy-to-markdown to batch visible descendants via a single request.
 2025-11-09 - Updated `/api/provisions/markdown_subtree` to emit each visible provision's content plus a deduped definitions section, keeping the MCP markdown formatter unchanged.
 2025-11-09 - Enforced deterministic ordering in `MainContent` via `utils/provisionSort.ts` so streamed provisions match the SideNav hierarchy, and documented the constraint in `agents/frontend.md`.

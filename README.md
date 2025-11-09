@@ -31,6 +31,22 @@ The project is structured as a multi-service application managed by Docker Compo
 2. Ensure the `.env` file exists in the project root (refer to the provided `.env` structure).
 3. **Set your `GOOGLE_CLOUD_API_KEY`** in the `.env` file.
 
+### Backend Concurrency Configuration
+
+The backend container now starts Uvicorn with four workers by default so a 4‑core VPS can service multiple simultaneous
+queries. Adjust concurrency via environment variables:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `UVICORN_WORKERS` | `4` | Number of worker processes (ignored when reload mode enabled). |
+| `UVICORN_RELOAD` | `0` | Set to `1` for local development hot reload; forces a single worker. |
+| `DB_POOL_SIZE` | `10` | SQLAlchemy pool per worker. |
+| `DB_POOL_MAX_OVERFLOW` | `10` | Burst connections per worker. |
+| `DB_POOL_TIMEOUT` | `30` | Seconds to wait for a pooled connection. |
+
+PostgreSQL runs with `max_connections=200` and `shared_buffers=512MB` by default in `docker-compose.yml`, which leaves
+enough headroom for the four-worker layout plus tooling.
+
 ### 2. Start the Infrastructure
 
 From the project root, build and start the containers (this compiles the custom Postgres image with `pgvector` support):

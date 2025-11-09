@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
 	ENVIRONMENT: str = "development"
 	PGVECTOR_HNSW_EF_SEARCH: int = 32
+	DB_POOL_SIZE: int = 10
+	DB_POOL_MAX_OVERFLOW: int = 10
+	DB_POOL_TIMEOUT: int = 30
 
 	@property
 	def DATABASE_URL(self) -> str:

@@ -126,11 +126,11 @@ ingest/
   expects `BACKEND_BASE_URL=http://backend:8000`.
 * FastMCP only exposes SSE. Clients must connect to `http://localhost:8765/sse`. Hitting the root path yields a 404 and
   the handshake terminates.
-* Available tools:
-	+ `semantic_search` wraps `POST /api/search/unified` and trims each hit to `{internal_id, ref_id, title, type,
-	  score_urs}` so an LLM inspects headers before requesting detail.
-	+ `provision_detail` wraps `GET /api/provisions/detail/{internal_id}` and returns the content, breadcrumbs, child
-	  nodes, references, and definitions (including outbound references).
+	* Available tools:
+		+ `semantic_search` wraps `POST /api/search/unified` and trims each hit to `{internal_id, ref_id, title, type,
+		  score_urs}` so an LLM inspects headers before requesting detail.
+		+ `provision_detail` wraps `GET /api/provisions/detail/{internal_id}` and returns the content, breadcrumbs, child
+		  nodes, references, and definitions (including outbound references).
 * Container-level smoke test:
 
 	```python
@@ -147,5 +147,14 @@ ingest/
 
 	asyncio.run(main())
 	```
+
+## Capacity Planning & Deployment
+
+* **Qwen3 model footprint:** `ingest/core/embedding_backend.py` resolves CPU deployments to `torch.float32`, so loading `Qwen/Qwen3-Embedding-0.6B` consumes ~2.5 GB for weights plus another ~0.5 GB for tokenizer buffers and activations during inference. Budget at least 3 GB of resident RAM for the embedding worker alone, or pin it to GPU/MPS so the backend + DB can stay resident on CPU RAM.
+* **4 vCPU / 8 GB boxes:** PostgreSQL with pgvector + HNSW typically sits around 2 GB once indexes are warm, while FastAPI + MCP stay under 1 GB combined. That leaves <2 GB headroom on an 8 GB VPS, so embedding bursts will force swapping unless you: (a) move Postgres to a managed service, (b) run embeddings in a separate worker (Celery/cron) container with a higher-memory plan, or (c) provision swap and accept slower ingestion.
+* **Chunk throughput expectations:** Each provision/definition is chunked into ~2.2 k-character windows with 350-character overlap (`README.md` and `ingest/core/relatedness_indexer.py`). On CPU-only hosts, expect roughly 20–40 chunks/sec for Qwen3, so embedding a fresh act (or hundreds of lazy case-law documents) can take many minutes. Batch the lazy jobs and cap `RELATEDNESS_EMBED_BATCH` to 16–24 if you hit RAM ceilings; throughput drops linearly but keeps the worker alive.
+* **Scaling case law:** 2 000 case PDFs averaging 8 k characters yield ~9 chunks/document (~18 000 total vectors). At 1024-dim pgvector entries that’s ~70 MB on disk, but HNSW indexes roughly double that, so plan for ~150 MB extra per 2 000 docs plus WAL overhead. Vacuum/analyze between large ingests so the ANN index stays balanced.
+* **Latency targets:** Relatedness lookups already cache vectors in `_SEM_VECTOR_CACHE` (`backend/services/relatedness_engine.py`), so once embeddings exist, query latency is dominated by Postgres ANN search. Keep embeddings hot by pre-warming frequently accessed provisions after deploys, otherwise the first few lazily generated vectors will block search for several seconds while the HF backend spins up on CPU.
+* **Backend concurrency:** `scripts/start-backend.sh` drives uvicorn with `${UVICORN_WORKERS:-4}` processes (dropping to a single `--reload` worker when `UVICORN_RELOAD=1`). Each worker uses the SQLAlchemy pool size defined by `DB_POOL_SIZE`/`DB_POOL_MAX_OVERFLOW`, so the default four-worker plan opens up to 80 Postgres connections—ensure the DB `max_connections` (set via compose to 200) remains above that ceiling.
 
 	This verifies the abbreviated search payload and the enriched provision detail response (definitions plus references).

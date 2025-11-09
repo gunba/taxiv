@@ -23,6 +23,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
 
   # Backend Service (FastAPI/Python/Ingestion)
   backend:
@@ -35,8 +43,8 @@ services:
       - .env
     environment:
       GOOGLE_CLOUD_API_KEY: ${GOOGLE_CLOUD_API_KEY}
-    # Override CMD for development: enable live reloading
-    command: uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-4}
+      UVICORN_RELOAD: ${UVICORN_RELOAD:-0}
     mem_limit: 8g
     volumes:
       # Mount the code for live reloading and access to data directories

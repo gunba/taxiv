@@ -39,7 +39,11 @@ def initialize_engine(max_retries=5, delay=5):
 		try:
 			engine = create_engine(
 				settings.DATABASE_URL,
-				echo=settings.ENVIRONMENT == "development"
+				echo=settings.ENVIRONMENT == "development",
+				pool_size=settings.DB_POOL_SIZE,
+				max_overflow=settings.DB_POOL_MAX_OVERFLOW,
+				pool_timeout=settings.DB_POOL_TIMEOUT,
+				pool_pre_ping=True,
 			)
 			event.listen(engine, "connect", _configure_pgvector_session)
 
