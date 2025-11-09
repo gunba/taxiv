@@ -180,15 +180,15 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
             return text;
         }
 
-        const parts = text.split(clickablesRegex);
+		const parts = text.split(clickablesRegex);
 
-        return parts.map((part, i) => {
-            if (!part) return null;
-            const lowerPart = part.toLowerCase();
-            const clickable = clickables.find(c => c.key === lowerPart);
-            if (clickable) {
-                const baseClass =
-                    'inline font-medium transition-colors hover:underline focus-visible:underline focus-visible:outline-none';
+		return parts.map((part, i) => {
+			if (!part) return null;
+			const lowerPart = part.toLowerCase();
+			const clickable = clickables.find(c => c.key === lowerPart);
+			if (clickable) {
+				const baseClass =
+					'inline whitespace-normal break-words align-baseline font-medium transition-colors hover:underline focus-visible:underline focus-visible:outline-none';
 
                 if (clickable.type === 'external') {
                     return (
