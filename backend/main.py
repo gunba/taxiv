@@ -1,9 +1,10 @@
 # backend/main.py
 import logging
 from pathlib import Path as PathLib
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Path as FastAPIPath
+from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -16,6 +17,7 @@ from backend.database import initialize_engine, Base, get_db
 from backend.schemas import UnifiedSearchRequest, UnifiedSearchResponse
 from backend.services.export_markdown import export_markdown_for_provision
 from backend.services.unified_search import unified_search as unified_search_service
+from backend.services.mcp_formatter import format_provision_detail_md
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
@@ -72,13 +74,24 @@ def list_acts(db: Session = Depends(get_db)):
 
 
 @app.get("/api/provisions/detail/{internal_id}", response_model=schemas.ProvisionDetail)
-def get_provision_detail(internal_id: str, db: Session = Depends(get_db)):
+def get_provision_detail(
+	internal_id: str,
+	response_format: Literal["json", "markdown"] = Query(
+		"json",
+		alias="format",
+		description="Set to 'markdown' to receive a formatted MCP-style payload.",
+	),
+	db: Session = Depends(get_db),
+):
 	"""
 	Returns the detailed information for a specific provision, including relationships.
 	"""
 	provision_detail = crud.get_provision_detail(db, internal_id)
 	if not provision_detail:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provision not found")
+	if response_format.lower() == "markdown":
+		markdown = format_provision_detail_md(provision_detail)
+		return PlainTextResponse(markdown)
 	return provision_detail
 
 
