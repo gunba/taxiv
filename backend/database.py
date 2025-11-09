@@ -37,9 +37,10 @@ def initialize_engine(max_retries=5, delay=5):
 			with engine.connect() as connection:
 				connection.execute(text("CREATE EXTENSION IF NOT EXISTS ltree;"))
 				connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+				connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
 				connection.commit()
 
-			logger.info("Database connection successful and 'ltree' extension ensured.")
+			logger.info("Database connection successful and 'ltree', 'vector', 'pg_trgm' extensions ensured.")
 			return engine
 
 		except SQLAlchemyError as e:
