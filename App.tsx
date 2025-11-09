@@ -4,11 +4,45 @@ import type {DetailViewContent, TaxDataObject} from './types';
 import SideNav from './components/SideNav';
 import MainContent from './components/MainContent';
 import DetailView from './components/DetailView';
-import {LogoIcon} from './components/Icons';
-import {api} from './utils/api';
+import {SearchIcon} from './components/Icons';
+import {api, type UnifiedSearchItem} from './utils/api';
+import SemanticSearchModal from './components/SemanticSearchModal';
+import taxivLogo from './taxiv.png';
 
 // Hardcode the primary Act ID for now.
 const PRIMARY_ACT_ID = 'ITAA1997';
+const SEMANTIC_SEARCH_STORAGE_KEY = 'taxiv:semantic_search';
+
+type SemanticSearchState = {
+	query: string;
+	results: UnifiedSearchItem[];
+};
+
+const loadSemanticSearchState = (): SemanticSearchState => {
+	if (typeof window === 'undefined') {
+		return {query: '', results: []};
+	}
+	try {
+		const raw = window.localStorage.getItem(SEMANTIC_SEARCH_STORAGE_KEY);
+		if (!raw) {
+			return {query: '', results: []};
+		}
+		const parsed = JSON.parse(raw);
+		if (typeof parsed.query === 'string' && Array.isArray(parsed.results)) {
+			const normalizedResults = (parsed.results as UnifiedSearchItem[]).map(result => ({
+				...result,
+				content_snippet: typeof result.content_snippet === 'string' && result.content_snippet.trim().length > 0
+					? result.content_snippet
+					: 'No content',
+			}));
+			return {query: parsed.query, results: normalizedResults};
+		}
+		return {query: '', results: []};
+	} catch (err) {
+		console.warn('Failed to load semantic search state:', err);
+		return {query: '', results: []};
+	}
+};
 
 const App: React.FC = () => {
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -18,6 +52,8 @@ const App: React.FC = () => {
     const [detailViewContent, setDetailViewContent] = useState<DetailViewContent | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [isSemanticSearchOpen, setSemanticSearchOpen] = useState(false);
+    const [semanticSearchState, setSemanticSearchState] = useState<SemanticSearchState>(() => loadSemanticSearchState());
 
     // Function to fetch details for the main view
     const fetchMainContent = useCallback(async (internalId: string) => {
@@ -125,6 +161,25 @@ const App: React.FC = () => {
         fetchDetailContent(definitionInternalId, 'term', termText);
     }, [fetchDetailContent]);
 
+    const persistSemanticSearchState = useCallback((nextState: SemanticSearchState) => {
+        setSemanticSearchState(nextState);
+        if (typeof window !== 'undefined') {
+            try {
+                window.localStorage.setItem(SEMANTIC_SEARCH_STORAGE_KEY, JSON.stringify(nextState));
+            } catch (err) {
+                console.warn('Failed to persist semantic search state:', err);
+            }
+        }
+    }, []);
+
+    const handleOpenSemanticSearch = useCallback(() => {
+        setSemanticSearchOpen(true);
+    }, []);
+
+    const handleCloseSemanticSearch = useCallback(() => {
+        setSemanticSearchOpen(false);
+    }, []);
+
 
     // Render Global Error state
     if (error && !isLoading && (!mainContentData || !selectedNodeId)) {
@@ -142,12 +197,20 @@ const App: React.FC = () => {
 
     // Main Layout (Design restored from original)
     return (
+		<>
         <div className="flex h-screen bg-gray-900 text-gray-200 font-sans">
             {/* Side Navigation Panel */}
             <div className="w-full md:w-1/4 h-full flex flex-col border-r border-gray-700 bg-gray-800">
-                <header className="p-4 border-b border-gray-700 flex items-center space-x-2 shrink-0">
-                    <LogoIcon className="w-8 h-8 text-blue-400"/>
-                    <h1 className="text-xl font-bold text-gray-100">Tax Code Explorer</h1>
+                <header className="p-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                    <img src={taxivLogo} alt="Taxiv" className="h-8 w-auto" />
+                    <button
+                        type="button"
+                        onClick={handleOpenSemanticSearch}
+                        className="inline-flex items-center justify-center rounded-full border border-gray-600 p-2 text-gray-200 hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                        aria-label="Open semantic search"
+                    >
+                        <SearchIcon className="w-5 h-5"/>
+                    </button>
                 </header>
                 <SideNav
                     actId={PRIMARY_ACT_ID}
@@ -180,6 +243,14 @@ const App: React.FC = () => {
                 />
             </aside>
         </div>
+        <SemanticSearchModal
+            isOpen={isSemanticSearchOpen}
+            onClose={handleCloseSemanticSearch}
+            onSelectProvision={handleSelectNode}
+            state={semanticSearchState}
+            onStateChange={persistSemanticSearchState}
+        />
+		</>
     );
 };
 

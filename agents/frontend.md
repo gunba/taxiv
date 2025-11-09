@@ -2,51 +2,47 @@
 
 ## Stack
 
-* **Framework:** React (v19+)
-* **Language:** TypeScript (Strict mode enabled)
+* **Framework:** React 19+
+* **Language:** TypeScript (strict mode)
 * **Build Tool:** Vite
-* **Styling:** Tailwind CSS (configured via CDN in `index.html`)
-* **State Management:** React Context and Hooks (`useState`, `useEffect`, `useCallback`, `useMemo`).
-* **Environment:** Dockerized Node.js environment.
+* **Styling:** Tailwind CSS via CDN injection in `index.html`
+* **State:** React Context plus hooks (`useState`, `useEffect`, `useCallback`, `useMemo`)
+* **Runtime:** Dockerized Node.js container
 
 ## Directory Structure
 
 ```
-
-/ (Project Root)
-├── components/      \# Reusable UI components
+/
+├── components/      # Reusable UI primitives
 │   ├── DetailView.tsx
 │   ├── Icons.tsx
 │   ├── MainContent.tsx
 │   └── SideNav.tsx
 ├── utils/
-│   └── api.ts           \# API abstraction layer
-├── types.ts             \# Shared TypeScript interfaces
-├── App.tsx              \# Main application component and layout
-├── index.tsx            \# Entry point
-└── vite.config.ts       \# Vite configuration (including proxy setup)
-
+│   └── api.ts       # Backend abstraction layer
+├── types.ts         # Shared TypeScript interfaces
+├── App.tsx          # Application shell + routing
+├── index.tsx        # Entry point
+└── vite.config.ts   # Vite config (proxy, plugins)
 ```
 
 ## Patterns
 
-* **Components:** Prefer functional components with hooks.
+* **Components:** Favor functional components and hooks; keep them pure and predictable.
 * **Data Fetching:**
-    * Data is fetched dynamically from the FastAPI backend.
-    * API calls are abstracted in `utils/api.ts`.
-    * The application uses a "load-on-demand" strategy for the navigation hierarchy (`SideNav.tsx`). Children are
-      fetched only when a parent is expanded.
-* **API Proxy:** Vite is configured (`vite.config.ts`) to proxy requests from `/api` to the backend container (
-  `http://backend:8000`). This avoids CORS issues in development.
-* **Media Proxy:** Static ingestion assets under `/media/...` are also forwarded to the backend so embedded diagrams
-  load while running the Vite dev server.
-* **TypeScript:** All code must be strongly typed. Avoid `any`. Interfaces in `types.ts` must align with the backend
-  Pydantic schemas.
+	* All API calls terminate in `utils/api.ts`.
+	* Fetch data on demand from the FastAPI backend rather than preloading.
+	* `SideNav.tsx` lazily loads child nodes when a parent expands to limit payload size.
+	* The semantic-search modal's copy actions call `/api/provisions/detail/{id}` with `format=json|markdown` so the UI dogfoods the MCP surface.
+* **API Proxy:** `vite.config.ts` proxies `/api` to `http://backend:8000`, eliminating dev-time CORS noise.
+* **Media Proxy:** Static ingestion artifacts under `/media/...` are forwarded through the same proxy so diagrams render
+  during Vite development sessions.
+* **TypeScript:** Maintain strict typing. Avoid `any`. Interfaces in `types.ts` must mirror the backend Pydantic schema.
 
 ## UX/UI
 
-* **Styling:** Uses a dark theme defined by Tailwind CSS utility classes.
-* **Interactivity:**
-    * `MainContent.tsx` processes markdown content to make defined terms (e.g., `*term*`) interactive using regex
-      replacement and event delegation.
-* **Error Handling:** Basic error and loading states are implemented in `App.tsx` and `SideNav.tsx`.
+* **Styling:** Dark theme composed via Tailwind utility classes.
+* **Interactivity:** `MainContent.tsx` rewrites markdown renderings at runtime to make definition tokens (e.g., `*term*`)
+  interactive using regex detection and event delegation.
+* **Error Handling:** `App.tsx` and `SideNav.tsx` implement base loading/error states; extend them before adding new UX
+  surface area.

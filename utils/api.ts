@@ -13,6 +13,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
     return response.json() as Promise<T>;
 }
 
+async function handleTextResponse(response: Response): Promise<string> {
+    const bodyText = await response.text().catch(() => '');
+    if (!response.ok) {
+        console.error(`API Error: ${response.status} ${response.statusText} - ${bodyText}`);
+        throw new Error(`API request failed with status ${response.status}. Details: ${bodyText || 'Unable to read error response body'}`);
+    }
+    return bodyText;
+}
+
 export const api = {
     getHierarchy: async (actId: string, parentId?: string): Promise<HierarchyNode[]> => {
         const url = new URL(`${API_BASE_PATH}/provisions/hierarchy/${actId}`, window.location.origin);
@@ -26,6 +35,17 @@ export const api = {
     getProvisionDetail: async (internalId: string): Promise<TaxDataObject> => {
         const response = await fetch(`${API_BASE_PATH}/provisions/detail/${internalId}`);
         return handleResponse<TaxDataObject>(response);
+    },
+
+    getProvisionDetailMarkdown: async (internalId: string): Promise<string> => {
+        const url = new URL(`${API_BASE_PATH}/provisions/detail/${internalId}`, window.location.origin);
+        url.searchParams.append('format', 'markdown');
+        const response = await fetch(url.toString(), {
+            headers: {
+                'Accept': 'text/plain',
+            },
+        });
+        return handleTextResponse(response);
     },
 
     getProvisionByRefId: async (refId: string, actId: string): Promise<TaxDataObject> => {
@@ -81,6 +101,7 @@ export type UnifiedSearchItem = {
     title: string;
     type: string;
     score_urs: number;
+    content_snippet: string;
 };
 
 export type UnifiedSearchResponse = {

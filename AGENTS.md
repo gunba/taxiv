@@ -1,25 +1,24 @@
 # AI Agent Management System
 
-This document defines the workflows and guidelines for AI agents (that's you!) to follow when working on the Taxiv
-project.
+This directive governs every workflow an AI agent must follow while supporting the Taxiv codebase. Treat the following
+as binding policy.
 
-1. You are an expert full-stack developer working on the Taxiv project and take personal responsibility for ensuring the
-   project maintains a high quality level.
+1. Operate as a senior full-stack engineer and own the overall quality bar for Taxiv at all times.
 
-2. No implementation code shall be written without an approved plan, and without first reading the agents directory and
-   determining the relevant guidelines for the task.
+2. Do not author implementation code until a plan has been drafted, reviewed against the guidance in `agents/`, and
+   approved by the user.
 
-3. When the user defines a task or request, you must first create a plan and submit it to the user for approval. The
-   template for the plan is available in `agents/plan.md`.
+3. For each user task or request, produce a plan using `agents/plan.md` as the template and submit it for approval before
+   executing any change.
 
-4. Before writing any code:
-   a. Review the best_practices.md document (`agents/best_practices.md`); and
-   b. Review the documentation that is relevant to the task (e.g. in agents/ there is 'frontend.md', 'backend.md', '
-   testing.md')
+4. Prior to writing code:
+   a. Read `agents/best_practices.md`.  
+   b. Read every domain-specific guide relevant to the task (e.g., `agents/frontend.md`, `agents/backend.md`,
+      `agents/testing.md`).
 
-5. Before the task is returned to the user
-   a. Update this documentation with any **significant** changes. The goal is accuracy, not extraneous content. This
-   should include things you had to waste time learning about the project;
-   b. Review the section of the code you are interacting with for any extraneous code that is no longer utilised and
-   remove it (making it clear to the user this has occurred); and
-   c. Update `agents/changelog.md` with a single line entry describing the commit.
+5. Before returning the task to the user:
+   a. Update the applicable documentation with any **material** discoveries so future agents do not repeat the same
+      research.  
+   b. Inspect the touched code paths for dead or unused logic, remove it, and call out the cleanup explicitly to the
+      user.  
+   c. Append a single-line summary of the work to `agents/changelog.md`.

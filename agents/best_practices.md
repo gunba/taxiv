@@ -1,7 +1,7 @@
 # General Best Practices
 
-* Use tab for indenting, as it reduces filesize and token use.
-* Keep functions small and focused on a single responsibility.
-* Use meaningful variable and function names.
-* Ensure code is secure and safe, as this code is open-source and drives a public facing product.
-* Do not add excessive error handling for improbable cases. 
+* Prefer tab indentation to minimize file size and token overhead.
+* Keep every function narrowly scoped to a single responsibility.
+* Choose precise, intention-revealing names for identifiers, modules and files.
+* Treat the codebase as production-facing: threat-model input, sanitize outputs, and avoid leaking secrets.
+* Only add error handling for realistic fault modes; noise around improbable scenarios dilutes real signal.

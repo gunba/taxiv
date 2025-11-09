@@ -1,3 +1,7 @@
+2025-11-09 - Centralized MCP markdown formatting in the backend, added `format=markdown` support on the provision detail API, and updated the semantic-search modal copy buttons to consume those endpoints.
+2025-11-09 - Aligned the semantic-search modal "Copy MCP JSON" button with the MCP provision_detail response by fetching and copying full provision detail payloads.
+2025-11-09 - Added ~120-char provision snippets (or 'No content') to unified search responses, wiring them through the MCP server and semantic search modal.
+2025-11-09 - Reworded AGENTS.md and all agent guidance docs to tighten tone and clarify mandatory workflows.
 2024-11-24 - Restricted the MCP surface to semantic search + provision detail, slimmed search results to headers only, enriched provision detail responses with breadcrumbs/definitions, and updated docs/UI wiring.
 2024-11-24 - Fixed GraphAnalyzer root sibling ordering by adding a rolling counter, updated docs, and added a regression test.
 2025-11-08 - Bound pgvector parameters via bindparam in `_semantic_neighbors`, documented the fastmcp SSE flow, and validated MCP tools end-to-end.

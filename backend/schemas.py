@@ -116,6 +116,7 @@ class UnifiedSearchResult(BaseModel):
 	title: str
 	type: str
 	score_urs: int
+	content_snippet: str
 
 
 class UnifiedSearchResponse(BaseModel):
