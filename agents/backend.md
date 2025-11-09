@@ -95,6 +95,9 @@ ingest/
   `BACKEND_BASE_URL=http://backend:8000`.
 * The FastMCP server only exposes an SSE transport, so clients must connect to `http://localhost:8765/sse` (note the `/sse`
   suffix). Pointing a client at the root URL returns a 404 and the handshake fails with “Session terminated.”
+* The server exposes two tools:
+	+ `semantic_search` — wraps `POST /api/search/unified` but trims each hit to `{internal_id, ref_id, title, type, score_urs}` so the LLM only sees headers until it opts to drill down.
+	+ `provision_detail` — wraps `GET /api/provisions/detail/{internal_id}` and includes content, breadcrumbs, children, references, plus every definition (each bundled with its outbound references).
 * Quick smoke test from inside the container:
 
 	```python
@@ -104,12 +107,12 @@ ingest/
 	async def main():
 		async with Client("http://127.0.0.1:8765/sse") as client:
 			print([tool.name for tool in await client.list_tools()])
-			resp = await client.call_tool("unified_search", {"query": "s 6-5 ordinary income", "k": 3})
+			resp = await client.call_tool("semantic_search", {"query": "s 6-5 ordinary income", "k": 3})
 			print(resp.data[:400])
+			detail = await client.call_tool("provision_detail", {"internal_id": "ITAA1997_Section_6-5", "format": "json"})
+			print(detail.data[:400])
 
 	asyncio.run(main())
 	```
 
-	This exercises `unified_search` end-to-end (backend + embeddings). In a separate snippet call `lookup_ref`,
-	`fetch_markdown`, and `get_breadcrumbs` with an `internal_id` such as `ITAA1997_Section_6-5` to ensure templates and
-	export pipelines respond with markdown.
+	This validates the search headers and the enriched provision detail payload (including definitions and references).

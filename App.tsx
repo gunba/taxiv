@@ -27,18 +27,10 @@ const App: React.FC = () => {
         setError(null);
         setSelectedNodeId(internalId); // Update ID immediately for responsiveness
 
-        try {
-            // Fetch detail and breadcrumbs concurrently (requires api.getBreadcrumbs)
-            const [data, crumbs] = await Promise.all([
-                api.getProvisionDetail(internalId),
-                api.getBreadcrumbs(internalId).catch(err => {
-                    console.warn("Failed to load breadcrumbs (ensure API endpoint exists):", err);
-                    return []; // Fallback if the API fails
-                })
-            ]);
-
-            setMainContentData(data);
-            setBreadcrumbs(crumbs);
+		try {
+			const data = await api.getProvisionDetail(internalId);
+			setMainContentData(data);
+			setBreadcrumbs(data.breadcrumbs ?? []);
         } catch (err) {
             console.error("Error fetching main content:", err);
             setError(`Failed to load provision: ${(err as Error).message}`);
@@ -141,8 +133,8 @@ const App: React.FC = () => {
                 <div className="text-red-400 p-8 border border-red-700 bg-gray-800 rounded-lg max-w-xl">
                     <h2 className="text-2xl font-bold mb-4">Application Error</h2>
                     <p>{error}</p>
-                    <p className="mt-4 text-sm text-gray-400">Please check the backend service status. Full
-                        functionality requires endpoints for search, breadcrumbs, and reference lookup.</p>
+					<p className="mt-4 text-sm text-gray-400">Please check the backend service status. Full
+                        functionality requires the hierarchy/search endpoints and the provision detail + reference lookup APIs.</p>
                 </div>
             </div>
         );

@@ -22,9 +22,9 @@ vi.mock('react-markdown', () => ({
 }));
 
 const baseNode: TaxDataObject = {
-    internal_id: 'interactive-test-id',
-    ref_id: 'interactive-test-ref',
-    act_id: 'act',
+	internal_id: 'interactive-test-id',
+	ref_id: 'interactive-test-ref',
+	act_id: 'act',
     type: 'section',
     local_id: null,
     title: 'Test',
@@ -34,9 +34,9 @@ const baseNode: TaxDataObject = {
     pagerank: 0,
     in_degree: 0,
     out_degree: 0,
-    references_to: [],
-    referenced_by: [],
-    defined_terms_used: [
+	references_to: [],
+	referenced_by: [],
+	defined_terms_used: [
         {
             definition_internal_id: 'taxable-income',
             term_text: 'Taxable Income',
@@ -44,8 +44,11 @@ const baseNode: TaxDataObject = {
         {
             definition_internal_id: 'tax-term',
             term_text: 'Tax',
-        },
-    ],
+		},
+	],
+	definitions_with_references: [],
+	breadcrumbs: [],
+	children: [],
 };
 
 describe('InteractiveContent term matching', () => {

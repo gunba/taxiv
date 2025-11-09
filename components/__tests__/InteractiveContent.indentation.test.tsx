@@ -22,9 +22,9 @@ vi.mock('react-markdown', () => ({
 }));
 
 const baseNode: TaxDataObject = {
-    internal_id: 'test-id',
-    ref_id: 'test-ref',
-    act_id: 'act',
+	internal_id: 'test-id',
+	ref_id: 'test-ref',
+	act_id: 'act',
     type: 'section',
     local_id: null,
     title: 'Test',
@@ -33,10 +33,13 @@ const baseNode: TaxDataObject = {
     hierarchy_path_ltree: '1',
     pagerank: 0,
     in_degree: 0,
-    out_degree: 0,
-    references_to: [],
-    referenced_by: [],
-    defined_terms_used: [],
+	out_degree: 0,
+	references_to: [],
+	referenced_by: [],
+	defined_terms_used: [],
+	definitions_with_references: [],
+	breadcrumbs: [],
+	children: [],
 };
 
 describe('InteractiveContent indentation handling', () => {

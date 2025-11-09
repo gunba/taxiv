@@ -21,6 +21,27 @@ export interface DefinedTermInfo {
     definition_internal_id: string | null;
 }
 
+export interface BreadcrumbItem {
+    internal_id: string;
+    title: string;
+}
+
+export interface ChildProvisionSummary {
+    internal_id: string;
+    ref_id: string;
+    title: string;
+    type: string;
+}
+
+export interface DefinitionReferenceInfo {
+    definition_internal_id: string;
+    ref_id: string | null;
+    title: string | null;
+    content_md: string | null;
+    term_texts: string[];
+    references_to: ReferenceInfo[];
+}
+
 // Matches the ProvisionDetail schema from the backend
 export interface TaxDataObject {
     internal_id: string;
@@ -44,6 +65,9 @@ export interface TaxDataObject {
     references_to: ReferenceInfo[];
     referenced_by: ReferencedByInfo[];
     defined_terms_used: DefinedTermInfo[];
+    definitions_with_references: DefinitionReferenceInfo[];
+    breadcrumbs: BreadcrumbItem[];
+    children: ChildProvisionSummary[];
 }
 
 // Matches the ProvisionHierarchy schema (for SideNav)

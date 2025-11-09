@@ -10,9 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.models.legislation import (
 	BaselinePagerank,
-	DefinedTermUsage,
 	Provision,
-	Reference,
 )
 from backend.services.relatedness_engine import get_or_compute_and_cache
 
@@ -94,7 +92,7 @@ def urs_from_log2(log2_lift: float) -> int:
 	return int(min(max(score, 0.0), 100.0))
 
 
-def unified_search(db: Session, query: str, k: int = 25, include_explanations: bool = True) -> dict:
+def unified_search(db: Session, query: str, k: int = 25) -> dict:
 	interpretation = parse_query(db, query)
 	seed_weights: Dict[str, float] = {}
 
@@ -155,10 +153,6 @@ def unified_search(db: Session, query: str, k: int = 25, include_explanations: b
 		Provision.ref_id,
 		Provision.title,
 		Provision.type,
-		Provision.pagerank,
-		Provision.in_degree,
-		Provision.out_degree,
-		Provision.content_md,
 	).filter(Provision.internal_id.in_(candidate_ids)).all()
 	meta = {row.internal_id: row for row in provisions}
 
@@ -171,88 +165,11 @@ def unified_search(db: Session, query: str, k: int = 25, include_explanations: b
 	scored.sort(key=lambda item: item[1], reverse=True)
 	top_results = scored[:k]
 
-	definition_titles: List[str] = []
-	if interpretation["definitions"]:
-		title_rows = db.query(Provision.title).filter(
-			Provision.internal_id.in_(interpretation["definitions"])
-		).all()
-		definition_titles = [row[0] for row in title_rows if row and row[0]]
-
-	seed_provisions = list(seed_weights.keys())
 	results: List[dict] = []
 	for prov_id, score in top_results:
 		row = meta.get(prov_id)
 		if not row:
 			continue
-
-		why: List[dict] = []
-		if include_explanations:
-			incoming = db.query(Reference).filter(
-				Reference.target_internal_id == prov_id,
-				Reference.source_internal_id.in_(seed_provisions),
-			).limit(1).all()
-			outgoing = db.query(Reference).filter(
-				Reference.source_internal_id == prov_id,
-				Reference.target_internal_id.in_(seed_provisions),
-			).limit(1).all()
-			if incoming:
-				why.append({
-					"type": "citation",
-					"detail": f"cited by seed {incoming[0].source_internal_id}",
-					"weight": 0.34,
-				})
-			elif outgoing:
-				why.append({
-					"type": "citation",
-					"detail": "it cites a seed",
-					"weight": 0.28,
-				})
-
-			if definition_titles:
-				lower_titles = [title.lower() for title in definition_titles]
-				term_hit = db.query(DefinedTermUsage).filter(
-					DefinedTermUsage.source_internal_id == prov_id,
-					func.lower(DefinedTermUsage.term_text).in_(lower_titles),
-				).first()
-				if term_hit:
-					why.append({
-						"type": "term",
-						"detail": f"uses '{term_hit.term_text}'",
-						"weight": 0.22,
-					})
-
-			if not why and interpretation["provisions"]:
-				parent_rows = db.query(Provision.parent_internal_id).filter(
-					Provision.internal_id.in_([prov_id] + interpretation["provisions"])
-				).all()
-				parents = [value[0] for value in parent_rows if value and value[0]]
-				if parents and len(set(parents)) <= 1:
-					why.append({
-						"type": "hierarchy",
-						"detail": "shares parent with a seed",
-						"weight": 0.15,
-					})
-
-			if not why:
-				why.append({
-					"type": "graph",
-					"detail": "multi-hop proximity",
-					"weight": 0.12,
-				})
-		else:
-			why = []
-
-		snippet = None
-		if row.content_md and (interpretation["keywords"] or definition_titles):
-			phrase = interpretation["keywords"] or (definition_titles[0] if definition_titles else "")
-			if phrase:
-				term = phrase.split()[0]
-				content_lower = row.content_md.lower()
-				idx = content_lower.find(term.lower())
-				if idx >= 0:
-					start = max(0, idx - 60)
-					end = min(len(row.content_md), idx + 120)
-					snippet = row.content_md[start:end].replace('\n', ' ').strip()
 
 		results.append({
 			"id": prov_id,
@@ -260,13 +177,6 @@ def unified_search(db: Session, query: str, k: int = 25, include_explanations: b
 			"title": row.title,
 			"type": row.type,
 			"score_urs": score,
-			"why": why,
-			"snippet": snippet,
-			"metrics": {
-				"pagerank": row.pagerank,
-				"in_degree": row.in_degree,
-				"out_degree": row.out_degree,
-			},
 		})
 
 	return {

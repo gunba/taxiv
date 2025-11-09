@@ -116,15 +116,6 @@ def get_provision_by_ref_id(
 	return provisions
 
 
-@app.get("/api/provisions/breadcrumbs/{internal_id}", response_model=List[schemas.BreadcrumbItem])
-def get_breadcrumbs(
-		internal_id: str = FastAPIPath(..., description="The internal ID of the provision."),
-		db: Session = Depends(get_db)
-):
-	"""Get the breadcrumbs for a given provision."""
-	return crud.get_breadcrumbs(db, internal_id)
-
-
 @app.post("/api/provisions/export_markdown", response_model=schemas.ExportMarkdownResponse)
 def export_markdown(request: schemas.ExportMarkdownRequest, db: Session = Depends(get_db)):
 	try:
@@ -141,7 +132,7 @@ def export_markdown(request: schemas.ExportMarkdownRequest, db: Session = Depend
 @app.post("/api/search/unified", response_model=UnifiedSearchResponse)
 def unified_search_endpoint(request: UnifiedSearchRequest, db: Session = Depends(get_db)):
 	try:
-		payload = unified_search_service(db, request.query, request.k, request.include_explanations)
+		payload = unified_search_service(db, request.query, request.k)
 		return payload
 	except Exception as exc:
 		logger.exception("Unified search failed")

@@ -33,6 +33,27 @@ class DefinedTermUsageDetail(BaseModel):
 	definition_internal_id: Optional[str]  # Populated in CRUD
 
 
+class BreadcrumbItem(BaseModel):
+	internal_id: str
+	title: str
+
+
+class ChildProvisionSummary(BaseModel):
+	internal_id: str
+	ref_id: str
+	title: str
+	type: str
+
+
+class DefinitionWithReferences(BaseModel):
+	definition_internal_id: str
+	ref_id: Optional[str]
+	title: Optional[str]
+	content_md: Optional[str]
+	term_texts: List[str] = []
+	references_to: List[ReferenceToDetail] = []
+
+
 class ProvisionDetail(ORMBase):
 	internal_id: str
 	ref_id: str
@@ -56,6 +77,9 @@ class ProvisionDetail(ORMBase):
 	references_to: List[ReferenceToDetail] = []
 	referenced_by: List[ReferencedByDetail] = []
 	defined_terms_used: List[DefinedTermUsageDetail] = []
+	definitions_with_references: List[DefinitionWithReferences] = []
+	breadcrumbs: List[BreadcrumbItem] = []
+	children: List[ChildProvisionSummary] = []
 
 
 class ProvisionHierarchy(ORMBase):
@@ -72,11 +96,6 @@ class ProvisionHierarchy(ORMBase):
 ProvisionHierarchy.model_rebuild()
 
 
-class BreadcrumbItem(BaseModel):
-	internal_id: str
-	title: str
-
-
 class ExportMarkdownRequest(BaseModel):
 	provision_internal_id: str
 	include_descendants: bool = False
@@ -89,13 +108,6 @@ class ExportMarkdownResponse(BaseModel):
 class UnifiedSearchRequest(BaseModel):
 	query: str
 	k: int = 25
-	include_explanations: bool = True
-
-
-class WhyItem(BaseModel):
-	type: str
-	detail: str
-	weight: Optional[float] = None
 
 
 class UnifiedSearchResult(BaseModel):
@@ -104,9 +116,6 @@ class UnifiedSearchResult(BaseModel):
 	title: str
 	type: str
 	score_urs: int
-	why: List[WhyItem] = []
-	snippet: Optional[str] = None
-	metrics: Optional[dict] = None
 
 
 class UnifiedSearchResponse(BaseModel):

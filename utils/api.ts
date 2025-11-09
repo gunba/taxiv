@@ -49,11 +49,6 @@ export const api = {
         return handleResponse<HierarchyNode[]>(response);
     },
 
-    getBreadcrumbs: async (internalId: string): Promise<{ internal_id: string; title: string }[]> => {
-        const response = await fetch(`${API_BASE_PATH}/provisions/breadcrumbs/${internalId}`);
-        return handleResponse<{ internal_id: string; title: string }[]>(response);
-    },
-
     exportMarkdown: async ({
                                internalId,
                                includeDescendants = false,
@@ -80,16 +75,12 @@ export const api = {
 };
 
 
-export type UnifiedSearchWhy = { type: string; detail: string; weight?: number | null };
 export type UnifiedSearchItem = {
     id: string;
     ref_id: string;
     title: string;
     type: string;
     score_urs: number;
-    why: UnifiedSearchWhy[];
-    snippet?: string | null;
-    metrics?: Record<string, number>;
 };
 
 export type UnifiedSearchResponse = {
@@ -107,7 +98,7 @@ export const unifiedSearch = async (query: string, k = 25): Promise<UnifiedSearc
     const response = await fetch(`${API_BASE_PATH}/search/unified`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query, k, include_explanations: true})
+        body: JSON.stringify({query, k})
     });
     return handleResponse<UnifiedSearchResponse>(response);
 };

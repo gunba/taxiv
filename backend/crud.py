@@ -1,14 +1,23 @@
 # backend/crud.py
 import logging
-from typing import List, Optional
+from collections import defaultdict
+from typing import Dict, List, Optional
 
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy_utils import Ltree
 
 from backend.models import legislation as models
-from backend.schemas import ProvisionDetail, ProvisionHierarchy, ReferenceToDetail, ReferencedByDetail, \
-	DefinedTermUsageDetail, BreadcrumbItem
+from backend.schemas import (
+	BreadcrumbItem,
+	ChildProvisionSummary,
+	DefinedTermUsageDetail,
+	DefinitionWithReferences,
+	ProvisionDetail,
+	ProvisionHierarchy,
+	ReferenceToDetail,
+	ReferencedByDetail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +224,76 @@ def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDet
 
 	defined_terms_used = [DefinedTermUsageDetail.model_validate(t._asdict()) for t in terms_used_query]
 
-	# 4. Construct the final response model
+	# 4. Breadcrumbs and children for hierarchy context
+	breadcrumbs = get_breadcrumbs(db, internal_id)
+	children_rows = db.query(
+		models.Provision.internal_id,
+		models.Provision.ref_id,
+		models.Provision.title,
+		models.Provision.type,
+	).filter(models.Provision.parent_internal_id == internal_id
+			 ).order_by(models.Provision.sibling_order, models.Provision.title).all()
+	children = [
+		ChildProvisionSummary(
+			internal_id=row.internal_id,
+			ref_id=row.ref_id,
+			title=row.title,
+			type=row.type,
+		)
+		for row in children_rows
+	]
+
+	# 5. Definitions with their outbound references
+	definitions_with_refs: List[DefinitionWithReferences] = []
+	definition_ids = list({term.definition_internal_id for term in defined_terms_used if term.definition_internal_id})
+	if definition_ids:
+		def_rows = db.query(
+			models.Provision.internal_id,
+			models.Provision.ref_id,
+			models.Provision.title,
+			models.Provision.content_md,
+		).filter(models.Provision.internal_id.in_(definition_ids)).all()
+		def_map = {row.internal_id: row for row in def_rows}
+
+		term_map: Dict[str, List[str]] = defaultdict(list)
+		for usage in defined_terms_used:
+			if usage.definition_internal_id:
+				term_map[usage.definition_internal_id].append(usage.term_text)
+
+		DefinitionTarget = aliased(models.Provision)
+		def_ref_rows = db.query(
+			models.Reference.source_internal_id,
+			models.Reference.target_ref_id,
+			models.Reference.snippet,
+			DefinitionTarget.title.label("target_title"),
+			models.Reference.target_internal_id,
+		).outerjoin(
+			DefinitionTarget,
+			DefinitionTarget.internal_id == models.Reference.target_internal_id
+		).filter(models.Reference.source_internal_id.in_(definition_ids)).all()
+
+		ref_map: Dict[str, List[ReferenceToDetail]] = defaultdict(list)
+		for ref_row in def_ref_rows:
+			ref_map[ref_row.source_internal_id].append(
+				ReferenceToDetail(
+					target_ref_id=ref_row.target_ref_id,
+					snippet=ref_row.snippet,
+					target_title=ref_row.target_title,
+					target_internal_id=ref_row.target_internal_id,
+				)
+			)
+
+		for def_id, def_row in def_map.items():
+			definitions_with_refs.append(DefinitionWithReferences(
+				definition_internal_id=def_id,
+				ref_id=def_row.ref_id,
+				title=def_row.title,
+				content_md=def_row.content_md,
+				term_texts=sorted(set(term_map.get(def_id, []))),
+				references_to=ref_map.get(def_id, []),
+			))
+
+	# 6. Construct the final response model
 	# Convert the SQLAlchemy model to a dict
 	provision_data = provision.__dict__
 
@@ -229,7 +307,10 @@ def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDet
 		**provision_data,
 		references_to=references_to,
 		referenced_by=referenced_by,
-		defined_terms_used=defined_terms_used
+		defined_terms_used=defined_terms_used,
+		definitions_with_references=definitions_with_refs,
+		breadcrumbs=breadcrumbs,
+		children=children,
 	)
 
 
