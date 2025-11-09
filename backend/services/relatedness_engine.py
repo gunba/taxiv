@@ -4,6 +4,7 @@ import logging
 from collections import defaultdict, deque
 from typing import Dict, List, Set, Tuple
 
+from cachetools import LRUCache
 from sqlalchemy import bindparam, or_, text
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,7 @@ from backend.models.legislation import (
 	RelatednessFingerprint,
 )
 from backend.models.semantic import Embedding, GraphMeta, ensure_graph_meta_seed
+from backend.services.search_filters import EXCLUDED_INTERNAL_IDS, is_excluded_provision
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,54 @@ MAX_EDGES = 40_000
 RADIUS = 2
 TERM_LIMIT_PER_TERM = 200
 SEM_K = 80
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBED_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+
+_SEM_VECTOR_CACHE: LRUCache[str, object] = LRUCache(maxsize=512)
+_PARENT_CHILD_CACHE: Dict[int, Tuple[Dict[str, str | None], Dict[str, List[str]]]] = {}
+
+
+def _ensure_parent_child_snapshot(db: Session, version: int) -> Tuple[Dict[str, str | None], Dict[str, List[str]]]:
+	snapshot = _PARENT_CHILD_CACHE.get(version)
+	if snapshot:
+		return snapshot
+
+	rows = db.query(
+		Provision.internal_id,
+		Provision.parent_internal_id,
+		Provision.sibling_order,
+	).all()
+	parent_map: Dict[str, str | None] = {}
+	children_map: Dict[str, List[Tuple[int | None, str]]] = defaultdict(list)
+	for child_id, parent_id, sibling_order in rows:
+		parent_map[child_id] = parent_id
+		if parent_id:
+			children_map[parent_id].append((sibling_order, child_id))
+
+	ordered_children: Dict[str, List[str]] = {}
+	for parent_id, siblings in children_map.items():
+		siblings.sort(key=lambda item: (item[0] is None, item[0], item[1]))
+		ordered_children[parent_id] = [child for _, child in siblings]
+
+	snapshot = (parent_map, ordered_children)
+	_PARENT_CHILD_CACHE[version] = snapshot
+	while len(_PARENT_CHILD_CACHE) > 2:
+		_PARENT_CHILD_CACHE.pop(next(iter(_PARENT_CHILD_CACHE)))
+	return snapshot
+
+
+def _get_seed_vector(db: Session, provision_id: str):
+	cached = _SEM_VECTOR_CACHE.get(provision_id)
+	if cached is not None:
+		return cached
+	row = db.query(Embedding.vector).filter(
+		Embedding.entity_kind == "provision",
+		Embedding.entity_id == provision_id,
+		Embedding.model == EMBED_MODEL,
+	).first()
+	if not row:
+		return None
+	_SEM_VECTOR_CACHE[provision_id] = row[0]
+	return row[0]
 
 
 def _row_normalize(adj: Dict[str, Dict[str, float]]) -> Dict[str, List[Tuple[str, float]]]:
@@ -82,7 +131,7 @@ def _approx_ppr_push(
 	return items, captured
 
 
-def _graph_version(db: Session) -> int:
+def get_graph_version(db: Session) -> int:
 	row = db.query(GraphMeta).order_by(GraphMeta.id.desc()).first()
 	if row:
 		return row.graph_version
@@ -90,15 +139,16 @@ def _graph_version(db: Session) -> int:
 	return seed.graph_version
 
 
-def _semantic_neighbors(db: Session, provision_id: str, k: int = SEM_K) -> List[Tuple[str, float]]:
-	vec_row = db.query(Embedding.vector).filter(
-		Embedding.entity_kind == "provision",
-		Embedding.entity_id == provision_id,
-		Embedding.model == EMBED_MODEL,
-	).first()
-	if not vec_row:
+def _semantic_neighbors(
+	db: Session,
+	provision_id: str,
+	k: int = SEM_K,
+	vector_param=None,
+) -> List[Tuple[str, float]]:
+	if vector_param is None:
+		vector_param = _get_seed_vector(db, provision_id)
+	if vector_param is None:
 		return []
-	vector_param = vec_row[0]
 	sql = text(
 		"""
 		SELECT entity_id,
@@ -115,14 +165,29 @@ def _semantic_neighbors(db: Session, provision_id: str, k: int = SEM_K) -> List[
 		sql,
 		{"vec": vector_param, "model": EMBED_MODEL, "pid": provision_id, "limit": k},
 	).fetchall()
-	return [(row[0], float(row[1])) for row in rows if row[0]]
+	results: List[Tuple[str, float]] = []
+	for row in rows:
+		entity_id = row[0]
+		if not entity_id or entity_id in EXCLUDED_INTERNAL_IDS:
+			continue
+		results.append((entity_id, float(row[1])))
+	return results
 
 
-def _expand_local_subgraph(db: Session, seeds: Set[str]) -> Tuple[Set[str], List[Tuple[str, str, str]]]:
-	nodes: Set[str] = set(seeds)
+def _expand_local_subgraph(
+	db: Session,
+	seeds: Set[str],
+	graph_version: int | None = None,
+) -> Tuple[Set[str], List[Tuple[str, str, str]]]:
+	filtered_seeds = {seed for seed in seeds if not is_excluded_provision(provision_id=seed)}
+	if not filtered_seeds:
+		return set(), []
+
+	version = graph_version or get_graph_version(db)
+	nodes: Set[str] = set(filtered_seeds)
 	edges: List[Tuple[str, str, str]] = []
-	frontier = set(seeds)
-	visited = set(seeds)
+	frontier = set(filtered_seeds)
+	visited = set(filtered_seeds)
 
 	for _ in range(RADIUS):
 		if not frontier or len(nodes) >= MAX_NODES:
@@ -141,6 +206,8 @@ def _expand_local_subgraph(db: Session, seeds: Set[str]) -> Tuple[Set[str], List
 		for source_id, target_id in ref_rows:
 			if not target_id:
 				continue
+			if source_id in EXCLUDED_INTERNAL_IDS or target_id in EXCLUDED_INTERNAL_IDS:
+				continue
 			edges.append((source_id, target_id, "cit"))
 			nodes.add(source_id)
 			nodes.add(target_id)
@@ -154,45 +221,33 @@ def _expand_local_subgraph(db: Session, seeds: Set[str]) -> Tuple[Set[str], List
 			break
 
 	# Hierarchy edges: connect parents/children plus adjacent siblings
-	parent_rows = db.query(
-		Provision.internal_id,
-		Provision.parent_internal_id,
-	).filter(
-		Provision.internal_id.in_(list(nodes)),
-	).all()
+	parent_map, children_map = _ensure_parent_child_snapshot(db, version)
 	parent_ids = set()
-	for child_id, parent_id in parent_rows:
-		if not parent_id:
+	for child_id in list(nodes):
+		parent_id = parent_map.get(child_id)
+		if not parent_id or parent_id in EXCLUDED_INTERNAL_IDS:
 			continue
 		edges.append((child_id, parent_id, "hier"))
 		edges.append((parent_id, child_id, "hier"))
 		nodes.add(parent_id)
 		parent_ids.add(parent_id)
 
-	if parent_ids:
-		child_rows = db.query(
-			Provision.internal_id,
-			Provision.parent_internal_id,
-		).filter(
-			Provision.parent_internal_id.in_(list(parent_ids)),
-		).all()
-		children_by_parent: Dict[str, List[str]] = defaultdict(list)
-		for child_id, parent_id in child_rows:
-			if not parent_id:
+	for parent_id in parent_ids:
+		for child_id in children_map.get(parent_id, []):
+			if child_id in EXCLUDED_INTERNAL_IDS:
 				continue
-			children_by_parent[parent_id].append(child_id)
 			edges.append((child_id, parent_id, "hier"))
 			edges.append((parent_id, child_id, "hier"))
 			nodes.add(child_id)
-		for siblings in children_by_parent.values():
-			for i in range(len(siblings) - 1):
-				a, b = siblings[i], siblings[i + 1]
-				edges.append((a, b, "hier"))
-				edges.append((b, a, "hier"))
+		siblings = [child for child in children_map.get(parent_id, []) if child not in EXCLUDED_INTERNAL_IDS]
+		for i in range(len(siblings) - 1):
+			a, b = siblings[i], siblings[i + 1]
+			edges.append((a, b, "hier"))
+			edges.append((b, a, "hier"))
 
 	# Term co-usage limited to terms present in seeds
 	seed_terms = db.query(DefinedTermUsage.term_text).filter(
-		DefinedTermUsage.source_internal_id.in_(list(seeds)),
+		DefinedTermUsage.source_internal_id.in_(list(filtered_seeds)),
 	).distinct().all()
 	term_texts = [row[0] for row in seed_terms if row and row[0]]
 	if term_texts:
@@ -206,6 +261,8 @@ def _expand_local_subgraph(db: Session, seeds: Set[str]) -> Tuple[Set[str], List
 		for pid, term in term_rows:
 			if not pid or not term:
 				continue
+			if pid in EXCLUDED_INTERNAL_IDS:
+				continue
 			if pid not in nodes:
 				nodes.add(pid)
 			by_term[term].append(pid)
@@ -218,10 +275,15 @@ def _expand_local_subgraph(db: Session, seeds: Set[str]) -> Tuple[Set[str], List
 					edges.append((v, u, "term"))
 
 	# Semantic neighbors taken directly from ANN
-	for seed_id in list(seeds):
-		for neighbor_id, _sim in _semantic_neighbors(db, seed_id, SEM_K):
+	for seed_id in list(filtered_seeds):
+		vector_param = _get_seed_vector(db, seed_id)
+		if vector_param is None:
+			continue
+		for neighbor_id, _sim in _semantic_neighbors(db, seed_id, SEM_K, vector_param=vector_param):
 			if len(nodes) >= MAX_NODES or len(edges) >= MAX_EDGES:
 				break
+			if neighbor_id in EXCLUDED_INTERNAL_IDS:
+				continue
 			nodes.add(neighbor_id)
 			edges.append((seed_id, neighbor_id, "sem"))
 			edges.append((neighbor_id, seed_id, "sem"))
@@ -229,8 +291,7 @@ def _expand_local_subgraph(db: Session, seeds: Set[str]) -> Tuple[Set[str], List
 	return nodes, edges
 
 
-def compute_fingerprint(db: Session, seed_id: str, k: int = TOP_K) -> Tuple[List[Tuple[str, float]], float]:
-	node_set, typed_edges = _expand_local_subgraph(db, {seed_id})
+def _build_weighted_adjacency(nodes: Set[str], typed_edges: List[Tuple[str, str, str]]):
 	adjacency: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
 
 	for source, target, view in typed_edges:
@@ -243,18 +304,48 @@ def compute_fingerprint(db: Session, seed_id: str, k: int = TOP_K) -> Tuple[List
 		elif view == "sem":
 			adjacency[source][target] += ALPHA_SEM
 
-	for node in node_set:
+	for node in nodes:
 		if not adjacency[node]:
 			adjacency[node][node] += 1.0
 
+	return adjacency
+
+
+def compute_fingerprint(db: Session, seed_id: str, k: int = TOP_K) -> Tuple[List[Tuple[str, float]], float]:
+	if is_excluded_provision(provision_id=seed_id):
+		return [], 0.0
+	version = get_graph_version(db)
+	node_set, typed_edges = _expand_local_subgraph(db, {seed_id}, graph_version=version)
+	adjacency = _build_weighted_adjacency(node_set, typed_edges)
 	adj_norm = _row_normalize(adjacency)
 	items, captured = _approx_ppr_push(adj_norm, {seed_id: 1.0}, gamma=GAMMA, eps=EPS, top_k=k)
 	items = [(pid, mass) for pid, mass in items if pid != seed_id][:k]
 	return items, captured
 
 
+def compute_fingerprint_multi(
+	db: Session,
+	seed_weights: Dict[str, float],
+	k: int = TOP_K,
+) -> Tuple[List[Tuple[str, float]], float]:
+	cleaned = {seed: weight for seed, weight in seed_weights.items() if weight > 0 and not is_excluded_provision(provision_id=seed)}
+	if not cleaned:
+		return [], 0.0
+	version = get_graph_version(db)
+	node_set, typed_edges = _expand_local_subgraph(db, set(cleaned.keys()), graph_version=version)
+	adjacency = _build_weighted_adjacency(node_set, typed_edges)
+	adj_norm = _row_normalize(adjacency)
+	total = sum(cleaned.values()) or 1.0
+	seeds_norm = {seed: weight / total for seed, weight in cleaned.items()}
+	items, captured = _approx_ppr_push(adj_norm, seeds_norm, gamma=GAMMA, eps=EPS, top_k=k)
+	items = [(pid, mass) for pid, mass in items if pid not in cleaned][:k]
+	return items[:k], captured
+
+
 def get_or_compute_and_cache(db: Session, seed_id: str) -> Tuple[List[Tuple[str, float]], float]:
-	current_version = _graph_version(db)
+	if is_excluded_provision(provision_id=seed_id):
+		return [], 0.0
+	current_version = get_graph_version(db)
 	row = db.query(RelatednessFingerprint).filter(
 		RelatednessFingerprint.source_kind == "provision",
 		RelatednessFingerprint.source_id == seed_id,
@@ -288,3 +379,34 @@ def get_or_compute_and_cache(db: Session, seed_id: str) -> Tuple[List[Tuple[str,
 
 	db.commit()
 	return neighbors, captured
+
+
+def get_cached_fingerprints(
+	db: Session,
+	seed_ids: Set[str],
+	expected_version: int,
+) -> Tuple[Dict[str, Tuple[List[Tuple[str, float]], float]], Set[str]]:
+	valid_seeds = {seed for seed in seed_ids if not is_excluded_provision(provision_id=seed)}
+	if not valid_seeds:
+		return {}, set()
+
+	rows = db.query(RelatednessFingerprint).filter(
+		RelatednessFingerprint.source_kind == "provision",
+		RelatednessFingerprint.source_id.in_(valid_seeds),
+	).all()
+
+	cached: Dict[str, Tuple[List[Tuple[str, float]], float]] = {}
+	missing: Set[str] = set(valid_seeds)
+	for row in rows:
+		if row.graph_version != expected_version or not row.neighbors:
+			continue
+		neighbor_items: List[Tuple[str, float]] = []
+		for item in row.neighbors or []:
+			pid = item.get("prov_id")
+			if not pid or pid in EXCLUDED_INTERNAL_IDS:
+				continue
+			neighbor_items.append((pid, float(item.get("ppr_mass", 0.0))))
+		cached[row.source_id] = (neighbor_items, float(row.captured_mass_provisions or 0.0))
+		missing.discard(row.source_id)
+
+	return cached, missing

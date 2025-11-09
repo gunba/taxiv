@@ -1,7 +1,7 @@
 # backend/crud.py
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session, aliased
@@ -354,3 +354,26 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
 
 	# Convert results to Pydantic models
 	return [ProvisionHierarchy.model_validate(r._asdict()) for r in results]
+
+
+def get_ordered_internal_ids(db: Session, internal_ids: Sequence[str]) -> List[str]:
+	"""
+	Return the subset of internal_ids that exist, ordered by their hierarchy path and sibling ordering.
+	"""
+	if not internal_ids:
+		return []
+
+	rows = (
+		db.query(
+			models.Provision.internal_id,
+			models.Provision.hierarchy_path_ltree,
+			models.Provision.sibling_order,
+		)
+		.filter(models.Provision.internal_id.in_(internal_ids))
+		.order_by(
+			models.Provision.hierarchy_path_ltree,
+			models.Provision.sibling_order,
+		)
+		.all()
+	)
+	return [row.internal_id for row in rows]

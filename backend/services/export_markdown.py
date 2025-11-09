@@ -172,6 +172,22 @@ def _render_definition_block(
 	return f"{block}\n\n```\n{code_body}\n```"
 
 
+def render_compact_detail_block(detail: ProvisionDetail) -> str:
+	"""Render a single provision as a simple heading + body block."""
+	heading = f"### {canonical_node_heading(detail)}"
+	ref_line = f"`{detail.ref_id}`" if detail.ref_id else ""
+	content = normalize_markdown_content(detail.content_md)
+
+	parts: List[str] = [heading]
+	if ref_line:
+		parts.append(ref_line)
+	if content:
+		parts.append("")
+		parts.append(content)
+
+	return "\n".join(part for part in parts if part).strip()
+
+
 def export_markdown_for_provision(
 		db: Session,
 		provision_internal_id: str,
@@ -253,3 +269,43 @@ def export_markdown_for_provision(
 			sections.append(f"- {target_ref_id} (from {source_ref_id}){snippet_part}")
 
 	return "\n\n".join(sections).strip()
+
+
+def assemble_visible_subtree_markdown(
+		db: Session,
+		ordered_internal_ids: Sequence[str],
+) -> str:
+	"""Render compact markdown for the selected nodes plus referenced definitions."""
+	if not ordered_internal_ids:
+		return ""
+
+	copied_details: List[ProvisionDetail] = []
+	seen_ids: Set[str] = set()
+	for internal_id in ordered_internal_ids:
+		if internal_id in seen_ids:
+			continue
+		detail = crud.get_provision_detail(db, internal_id)
+		if not detail:
+			continue
+		copied_details.append(detail)
+		seen_ids.add(detail.internal_id)
+
+	if not copied_details:
+		return ""
+
+	copied_details.sort(key=lambda d: (d.hierarchy_path_ltree, d.sibling_order or 0))
+	copied_blocks = [render_compact_detail_block(detail) for detail in copied_details if detail]
+
+	exclude_ids: Set[str] = set(seen_ids)
+	definition_details = _collect_definitions(db, copied_details, exclude_ids)
+	definition_details = _unique_by_internal_id(definition_details)
+	definition_details.sort(key=lambda d: (d.hierarchy_path_ltree, d.sibling_order or 0))
+	definition_blocks = [render_compact_detail_block(detail) for detail in definition_details if detail]
+
+	sections: List[str] = [block for block in copied_blocks if block]
+
+	if definition_blocks:
+		definitions_section = "## Definitions\n\n" + "\n\n---\n\n".join(definition_blocks)
+		sections.append(definitions_section)
+
+	return "\n\n---\n\n".join(section for section in sections if section).strip()

@@ -76,6 +76,30 @@ docker-compose exec backend python -m ingest.pipelines.itaa1997.run_pipeline
 
 This process may take time. Subsequent runs will be faster due to LLM caching (`ingest/cache/llm_cache.db`).
 
+### Embeddings & pgvector
+
+Provision embeddings now rely on Hugging Face's `Qwen/Qwen3-Embedding-0.6B` model via Transformers/Torch. The ingestion
+pipeline encodes provision/definition chunks (~2.2k characters with a 350-character overlap) and averages the normalized
+chunk vectors before upserting them into the `embeddings` pgvector table. The backend queries the same vectors for
+semantic neighbors. After pulling this change (or whenever switching embedding dimensions) run:
+
+```bash
+docker compose exec backend python -m backend.manage_embeddings resize-vector --dim 1024
+```
+
+This truncates the embeddings table, resizes the pgvector column to 1024 dimensions, and recreates the HNSW index so the
+next ingestion pass can repopulate it. Use `RELATEDNESS_EMBED_*` env vars (see `ingest/core/relatedness_indexer.py`) to
+override the model id, device pinning, batch size, context window, or chunk sizes.
+
+## Search Performance Notes
+
+* Personalized fingerprints are now computed during ingestion and saved into `relatedness_fingerprint`, so run the Phase
+  B pipeline whenever legislation content changes to refresh graph caches.
+* Unified search caches full responses (keyed by query, `k`, and `graph_version`) for 10 minutes and hard-caps lexical
+  seeds to avoid redundant PPR solves.
+* Section 995 (the definitions container) still ingests but is excluded from ranking/relatedness to keep search
+  results useful—users can open it directly via navigation if required.
+
 ### 4\. Access the Application
 
 * **Frontend:** `http://localhost:3000`
@@ -86,51 +110,30 @@ This process may take time. Subsequent runs will be faster due to LLM caching (`
 The Docker Compose setup enables live reloading for both the frontend (Vite HMR) and the backend (Uvicorn reload).
 Changes made to the source code will be reflected automatically.
 
-## SideNav Markdown Export
+## SideNav Markdown Copy
 
-The SideNav includes contextual export controls that appear when you hover over or keyboard-focus a provision row. When
-the controls are visible you can:
+The SideNav shows a clipboard button when you hover over (or keyboard-focus) a provision row. The control now copies
+*only the selected provision* by calling `GET /api/provisions/detail/{id}?format=markdown`, which returns pre-rendered
+markdown for that node alone. This keeps the interaction fast even when you start from chapters that contain hundreds of
+descendants.
 
-* **Copy** – Export only the selected provision.
-* **Copy all** – Export the provision and all of its descendants in the hierarchy.
+When you click the button:
 
-Each export opens a clipboard write request in the browser. Browsers require a user gesture (click or keyboard
-activation) to grant clipboard permissions. If the permission request is denied, Taxiv reports the fallback state and
-returns the generated markdown so the UI can offer a manual copy path (the default SideNav implementation surfaces an
-inline status message).
+1. The UI fetches the markdown for the selected provision.
+2. The payload is written to the clipboard via the standard `navigator.clipboard.writeText` gesture.
+3. A toast confirms success (or surfaces an error if the clipboard or network request fails). There is no longer an
+   inline status message anchored to the navigation row.
 
-### What the export contains
-
-The backend assembles a complete markdown bundle for the provision before sending it to the clipboard. The export
-contains:
-
-1. **Copied nodes** – The node you selected and, when `Copy all` is used, every descendant provision.
-2. **Referenced nodes** – Any provisions referenced by the copied set so cross-links resolve inline.
-3. **Definitions used** – Definitions pulled in transitively for any defined terms found in the copied or referenced
-   material.
-4. **Unresolved external references** – A trailing list of cross-references that could not be resolved to provision IDs,
-   including the snippet that triggered the reference when available.
-
-### Walkthrough and extension points
-
-1. Hover over a provision in the SideNav to reveal the copy buttons (or focus it with the keyboard and press `Tab`).
-2. Choose **Copy** or **Copy all**. A spinner replaces the label while the export is running.
-3. On success, a confirmation status appears beneath the node. If clipboard access is blocked, the status indicates the
-   fallback so you can provide a manual copy surface via the `onClipboardFallback` callback if desired.
-
-The export request is orchestrated in `utils/exportMarkdown.ts`, which handles clipboard permissions and provides hooks
-for additional UI feedback. To adjust the structure of the generated markdown itself, modify
-`backend/services/export_markdown.py`. Helper functions there (for example `_render_detail_block` and
-`_collect_unresolved_references`) are the extension points for adding new sections or changing formatting rules.
+If you need a hierarchical export (provision + descendants + referenced nodes + definitions), call
+`POST /api/provisions/export_markdown` directly or reuse the backend service at
+`backend/services/export_markdown.py`. That endpoint still assembles the full subtree bundle for MCP and other tooling,
+but it is intentionally heavyweight and no longer powers the SideNav button.
 
 ### Troubleshooting
 
 * **Clipboard permission denied:** Confirm the page is loaded over HTTPS (or `localhost`) and that the user initiated
-  the
-  export via a direct interaction. Browsers may require reloading the page after updating clipboard settings.
-* **Backend export endpoint unavailable:** The SideNav export calls the `POST /api/provisions/export_markdown` endpoint.
-  Ensure the backend container is running
-  (`docker-compose ps`) and inspect the backend logs for errors (`docker-compose logs backend`).
-* **Export succeeds but references are missing:** Verify that referenced provisions exist in the database. If the
-  ingestion pipeline skipped source files, re-run `ingest.pipelines.itaa1997.run_pipeline` and confirm
-  `backend/services/export_markdown.py` includes the desired section.
+  the export via a direct interaction. Browsers may require reloading the page after updating clipboard settings.
+* **Markdown request fails:** Ensure the backend `/api/provisions/detail/{id}?format=markdown` route is reachable and
+  that the provision exists.
+* **Need hierarchical exports:** Use the `POST /api/provisions/export_markdown` endpoint or call the helper in
+  `backend/services/export_markdown.py` directly inside backend/MCP workflows.

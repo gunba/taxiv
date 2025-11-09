@@ -1,7 +1,7 @@
 import logging
 import time
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -26,18 +26,29 @@ def initialize_engine(max_retries=5, delay=5):
 	logger.info(f"Attempting to connect to database at {settings.DB_HOST}:{settings.DB_PORT}...")
 
 	# Retry mechanism for Docker environments
+	ef_search = max(1, int(getattr(settings, "PGVECTOR_HNSW_EF_SEARCH", 32) or 32))
+
+	def _configure_pgvector_session(dbapi_connection, _connection_record):
+		try:
+			with dbapi_connection.cursor() as cursor:
+				cursor.execute(f"SET pgvector.hnsw_ef_search = {ef_search};")
+		except Exception as exc:
+			logger.debug("Failed to set pgvector.hnsw_ef_search: %s", exc)
+
 	for attempt in range(max_retries):
 		try:
 			engine = create_engine(
 				settings.DATABASE_URL,
 				echo=settings.ENVIRONMENT == "development"
 			)
+			event.listen(engine, "connect", _configure_pgvector_session)
 
 			# Test connection and enable extensions
 			with engine.connect() as connection:
 				connection.execute(text("CREATE EXTENSION IF NOT EXISTS ltree;"))
 				connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
 				connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+				connection.execute(text(f"SET pgvector.hnsw_ef_search = {ef_search};"))
 				connection.commit()
 
 			logger.info("Database connection successful and 'ltree', 'vector', 'pg_trgm' extensions ensured.")

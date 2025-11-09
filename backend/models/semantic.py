@@ -18,7 +18,7 @@ from pgvector.sqlalchemy import Vector
 
 from backend.database import Base
 
-EMBED_DIM = 384  # all-MiniLM-L6-v2
+EMBED_DIM = 1024  # Qwen/Qwen3-Embedding-0.6B default output
 
 
 class GraphMeta(Base):

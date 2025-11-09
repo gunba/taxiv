@@ -10,7 +10,7 @@
 * **Validation:** Pydantic (FastAPI + Pydantic Settings)
 * **Data Tooling:** NetworkX (graph analysis), python-docx (ingestion)
 * **LLM Runtime:** google-generativeai (Gemini)
-* **Embeddings:** sentence-transformers (`all-MiniLM-L6-v2` default) persisted via pgvector for ANN
+* **Embeddings:** Qwen/Qwen3-Embedding-0.6B (HF Transformers) persisted via pgvector for ANN
 * **Environment:** Docker, Docker Compose, pip with `requirements.txt`
 
 ### System Dependencies
@@ -48,6 +48,7 @@ ingest/
 
 * **Data Ingestion**
 	* Pipelines are partitioned per Act under `ingest/pipelines/[act_id]`.
+	* Always execute ingestion via the backend container (`docker compose exec backend python -m ingest...`) so system packages and libraries (pgvector, ImageMagick, LibreOffice, etc.) are available; host-side runs will miss these dependencies unless you fully replicate the container environment.
 	* Two-phase model:
 		1. **Phase A — Parsing & Enrichment:** Parse raw inputs, normalize structure, run LLM enrichment with caching, and
 		   emit intermediate JSON.
@@ -66,10 +67,19 @@ ingest/
 	  with progress bars disabled.
 
 * **Graph Relatedness & ANN**
+	* Provision embeddings rely on the HF Qwen3 embedding models. `ingest/core/embedding_backend.py` wraps loading so we reuse
+	  tokenizer/model instances, normalize outputs, and auto-select GPU (`cuda`) when available (falling back to CPU/MPS).
 	* Provision embeddings write incrementally to the `embeddings` table (pgvector + HNSW) via
-	  `ingest/core/relatedness_indexer.upsert_provision_embeddings`.
+	  `ingest/core/relatedness_indexer.upsert_provision_embeddings`, which now feeds chunked text (2.2k char chunks / 350 char overlap by
+	  default) through Qwen and averages normalized chunk vectors.
+	* Unified semantic search relies on cached `relatedness_fingerprint` rows (see `backend/services/relatedness_engine.py`). After bumping the graph version or truncating fingerprints, the next query for each provision recomputes `_expand_local_subgraph` (citations, hierarchy, term co-usage, ANN neighbors) before writing the cache, which can make early searches take a few seconds until hot.
 	* Always declare the operator class (`vector_l2_ops`) when creating pgvector HNSW indexes; PostgreSQL rejects the DDL
 	  otherwise.
+	* Run `python -m backend.manage_embeddings resize-vector --dim 1024` after pulling this change (or whenever switching embedding
+	  dims). The command truncates embeddings, resizes the pgvector column, and recreates the HNSW index. Pass
+	  `--skip-truncate` only if the table is already empty.
+	* Configure embedding behavior via env vars (see `RelatednessIndexerConfig`) including `RELATEDNESS_EMBED_MODEL`,
+	  `RELATEDNESS_EMBED_BATCH`, `RELATEDNESS_EMBED_DEVICE`, `RELATEDNESS_EMBED_MAX_LENGTH`, and chunk sizing knobs.
 	* The ingestion pipeline computes only baseline PageRank. Personalized fingerprints are generated lazily via
 	  `backend/services/relatedness_engine.py`.
 	* `relatedness_fingerprint` rows carry a `graph_version`. Run `python -m backend.manage_graph bump-version` after
@@ -79,6 +89,19 @@ ingest/
 	* When binding pgvector values in raw SQL (e.g., `_semantic_neighbors`), wrap the parameter with
 	  `bindparam("vec", type_=Embedding.__table__.c.vector.type)` so psycopg receives a pgvector payload instead of a
 	  bare `numpy.ndarray`.
+
+* **Markdown Export**
+	* `backend/services/export_markdown.py` walks every descendant of the selected provision when
+	  `include_descendants=True` and calls `crud.get_provision_detail` for each node, then repeats the same call for
+	  every referenced or definition node it pulls into the bundle. Each detail call fans out into several queries
+	  (references, defined terms, breadcrumbs, children, etc.), so exporting a large subtree can issue hundreds of SQL
+	  trips before the markdown is assembled. The SideNav UI now avoids this path (it fetches a single provision via
+	  `?format=markdown`), but MCP/automation flows that call `export_markdown_for_provision` should be prepared for
+	  linear cost relative to descendant + reference + definition counts until we batch these lookups.
+	* `/api/provisions/markdown_subtree` accepts a root provision plus the set of visible descendant IDs, orders them by
+	  `hierarchy_path_ltree`, renders each node as a compact heading + `content_md`, and appends a deduped definitions
+	  section. This keeps the SideNav copy-to-markdown button to one backend call even when entire chapters (with
+	  definitions) are selected, while leaving the MCP markdown formatter untouched.
 
 * **Database (LTree)**
 	* `provisions.hierarchy_path_ltree` is the canonical representation for legislative hierarchy.

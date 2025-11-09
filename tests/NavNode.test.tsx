@@ -3,14 +3,14 @@ import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {HierarchyNode} from '@/types';
-import {exportMarkdownToClipboard} from '@/utils/exportMarkdown';
 import {NavNode} from '@/components/SideNav';
 
-vi.mock('@/utils/exportMarkdown', () => ({
-    exportMarkdownToClipboard: vi.fn(),
-}));
+const showToastMock = vi.fn();
 
-const mockedExportMarkdown = vi.mocked(exportMarkdownToClipboard);
+vi.mock('@/components/ToastProvider', () => ({
+    ToastProvider: ({children}: { children: React.ReactNode }) => <>{children}</>,
+    useToast: () => ({showToast: showToastMock}),
+}));
 
 const baseNode: HierarchyNode = {
     internal_id: 'node-1',
@@ -21,32 +21,71 @@ const baseNode: HierarchyNode = {
     children: null,
 };
 
-const renderNavNode = (overrides: Partial<HierarchyNode> = {}) => {
-    return render(
-        <ul>
-            <NavNode
-                node={{...baseNode, ...overrides}}
-                actId="act-1"
-                onSelectNode={vi.fn()}
-                selectedNodeId={null}
-                level={0}
-                isSearchActive={false}
-            />
-        </ul>,
-    );
+const renderNavNode = (
+    overrides: Partial<HierarchyNode> = {},
+    options: Partial<{
+        onCopyMarkdown: (node: HierarchyNode) => Promise<string>;
+        isExpanded: boolean;
+    }> = {},
+) => {
+    const onCopyMarkdown =
+        options.onCopyMarkdown ?? vi.fn<(node: HierarchyNode) => Promise<string>>().mockResolvedValue('# heading');
+    const isExpanded = options.isExpanded ?? false;
+    return {
+        onCopyMarkdown,
+        ...render(
+            <ul>
+                <NavNode
+                    node={{...baseNode, ...overrides}}
+                    onSelectNode={vi.fn()}
+                    selectedNodeId={null}
+                    level={0}
+                    isSearchActive={false}
+                    onToggleNode={vi.fn()}
+                    resolveChildren={(): HierarchyNode[] => []}
+                    getIsExpanded={() => isExpanded}
+                    getIsLoadingChildren={() => false}
+                    onCopyMarkdown={onCopyMarkdown}
+                />
+            </ul>,
+        ),
+    };
 };
+
+const originalClipboard = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
+
+const getClipboardMock = () =>
+    (window.navigator.clipboard as { writeText: ReturnType<typeof vi.fn> }).writeText;
+
+beforeEach(() => {
+    vi.restoreAllMocks();
+    showToastMock.mockReset();
+    Object.defineProperty(window.navigator, 'clipboard', {
+        configurable: true,
+        value: {
+            writeText: vi.fn(),
+        },
+    });
+});
 
 afterEach(() => {
     cleanup();
     vi.clearAllMocks();
 });
 
+afterAll(() => {
+    if (originalClipboard) {
+        Object.defineProperty(window.navigator, 'clipboard', originalClipboard);
+    } else {
+        delete (window.navigator as { clipboard?: unknown }).clipboard;
+    }
+});
+
 describe('NavNode export controls', () => {
     it('reveals export actions on hover and copies node markdown', async () => {
-        mockedExportMarkdown.mockResolvedValue({status: 'success', markdown: '# heading'});
         const user = userEvent.setup();
 
-        renderNavNode();
+        const {onCopyMarkdown} = renderNavNode();
 
         const copyButton = screen.getByRole('button', {
             name: 'Copy markdown for Sample Node to clipboard',
@@ -65,29 +104,31 @@ describe('NavNode export controls', () => {
 
         await user.click(copyButton);
 
-        expect(mockedExportMarkdown).toHaveBeenCalledWith(
-            expect.objectContaining({
-                internalId: 'node-1',
-                includeDescendants: true,
-            }),
-        );
+        expect(onCopyMarkdown).toHaveBeenCalledWith(expect.objectContaining({internal_id: 'node-1'}));
 
         await waitFor(() => {
-            expect(screen.getByRole('status')).toHaveTextContent('Markdown copied to clipboard.');
+            expect(getClipboardMock()).toHaveBeenCalledWith('# heading');
         });
+
+        expect(showToastMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                title: 'Markdown copied',
+                variant: 'success',
+            }),
+        );
     });
 
     it('disables actions while export is pending and prevents concurrent requests', async () => {
-        let resolveExport: (value: { status: 'success'; markdown: string }) => void = () => {};
-        mockedExportMarkdown.mockImplementation(
+        let resolveExport: (value: string) => void = () => {};
+        const onCopyMarkdown = vi.fn(
             () =>
-                new Promise(resolve => {
+                new Promise<string>(resolve => {
                     resolveExport = resolve;
                 }),
         );
         const user = userEvent.setup();
 
-        renderNavNode();
+        renderNavNode({}, {onCopyMarkdown});
 
         const copyButton = screen.getByRole('button', {
             name: 'Copy markdown for Sample Node to clipboard',
@@ -98,34 +139,27 @@ describe('NavNode export controls', () => {
 
         await user.click(copyButton);
 
-        expect(mockedExportMarkdown).toHaveBeenCalledTimes(1);
-        expect(mockedExportMarkdown).toHaveBeenCalledWith(
-            expect.objectContaining({
-                internalId: 'node-1',
-                includeDescendants: true,
-            }),
-        );
+        expect(onCopyMarkdown).toHaveBeenCalledTimes(1);
 
         expect(copyButton).toBeDisabled();
 
         await user.click(copyButton);
-        expect(mockedExportMarkdown).toHaveBeenCalledTimes(1);
+        expect(onCopyMarkdown).toHaveBeenCalledTimes(1);
 
-        resolveExport({status: 'success', markdown: '## done'});
+        resolveExport('## done');
 
         await waitFor(() => {
             expect(copyButton).not.toBeDisabled();
         });
+
+        expect(getClipboardMock()).toHaveBeenCalledWith('## done');
     });
 
     it('surfaces error feedback when export fails', async () => {
-        mockedExportMarkdown.mockResolvedValue({
-            status: 'error',
-            error: new Error('Network unavailable'),
-        });
+        const onCopyMarkdown = vi.fn().mockRejectedValue(new Error('Network unavailable'));
         const user = userEvent.setup();
 
-        renderNavNode();
+        renderNavNode({}, {onCopyMarkdown});
 
         const copyButton = screen.getByRole('button', {
             name: 'Copy markdown for Sample Node to clipboard',
@@ -137,7 +171,12 @@ describe('NavNode export controls', () => {
         await user.click(copyButton);
 
         await waitFor(() => {
-            expect(screen.getByRole('status')).toHaveTextContent('Network unavailable');
+            expect(showToastMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Failed to copy markdown',
+                    variant: 'error',
+                }),
+            );
         });
     });
 });

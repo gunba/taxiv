@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 	MEDIA_URL_BASE: str = "/media"
 
 	ENVIRONMENT: str = "development"
+	PGVECTOR_HNSW_EF_SEARCH: int = 32
 
 	@property
 	def DATABASE_URL(self) -> str:

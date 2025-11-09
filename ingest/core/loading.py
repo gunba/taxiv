@@ -83,6 +83,7 @@ class DatabaseLoader:
 				# Ensure tables and extensions (ltree) exist (idempotent)
 				Base.metadata.create_all(bind=engine)
 				self._ensure_required_schema(engine)
+				self._ensure_performance_indexes(engine)
 		except Exception as e:
 			logger.error(f"Database initialization failed. Cannot proceed with loading. Error: {e}")
 			raise
@@ -130,6 +131,27 @@ class DatabaseLoader:
 			logger.error("Failed to reconcile schema for '%s': %s", table.name, exc)
 			raise
 
+	def _ensure_performance_indexes(self, engine):
+		statements = [
+			"""CREATE INDEX IF NOT EXISTS ix_provisions_fts_en
+			   ON provisions USING GIN (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(content_md,'')));""",
+			"""CREATE INDEX IF NOT EXISTS ix_provisions_fts_simple
+			   ON provisions USING GIN (to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(content_md,'')));""",
+			"""CREATE INDEX IF NOT EXISTS ix_provisions_title_trgm
+			   ON provisions USING GIN (lower(title) gin_trgm_ops);""",
+			"""CREATE INDEX IF NOT EXISTS ix_provisions_content_trgm
+			   ON provisions USING GIN (lower(coalesce(content_md,'')) gin_trgm_ops);""",
+			"""CREATE INDEX IF NOT EXISTS ix_references_source_target
+			   ON references (source_internal_id, target_internal_id);""",
+			"""CREATE INDEX IF NOT EXISTS ix_provisions_title_fts
+			   ON provisions USING GIN (to_tsvector('english', coalesce(title,'')));""",
+		]
+		for ddl in statements:
+			try:
+				with engine.begin() as connection:
+					connection.execute(text(ddl))
+			except SQLAlchemyError as exc:
+				logger.error("Failed to ensure index: %s", exc)
 	@staticmethod
 	def _can_auto_add(column):
 		"""
@@ -297,7 +319,7 @@ class DatabaseLoader:
 			logger.error(f"An unexpected error occurred. Rolling back. Error: {e}")
 			logger.error(traceback.format_exc())
 
-	def load_relatedness_data(self, baseline_pi: dict, fingerprints: dict):
+	def load_relatedness_data(self, baseline_pi: dict, fingerprints: dict, graph_version: int | None = None):
 		"""
 		Bulk insert baseline PageRank and personalized fingerprints for the act's provisions.
 		"""
@@ -322,12 +344,14 @@ class DatabaseLoader:
 
 			if fingerprints:
 				rows = []
+				target_version = graph_version or 1
 				for source_id, (neighbors, captured) in fingerprints.items():
 					rows.append({
 						"source_kind": "provision",
 						"source_id": source_id,
 						"neighbors": neighbors,
 						"captured_mass_provisions": float(captured),
+						"graph_version": target_version,
 					})
 				if rows:
 					db.bulk_insert_mappings(RelatednessFingerprint, rows)

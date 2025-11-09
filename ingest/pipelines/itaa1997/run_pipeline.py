@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ingest.core.progress import progress_bar, progress_write
 from backend.database import get_db
 from backend.models.semantic import bump_graph_version
+from backend.services.relatedness_engine import get_graph_version
 
 # Import core modules
 # MODIFICATION: Import the module itself
@@ -414,25 +415,50 @@ def run_analysis_and_loading(config: Config):
 				provisions_payload,
 				model_name=cfg.embedding_model_name,
 				batch_size=cfg.embedding_batch_size,
-				max_text_chars=cfg.max_text_chars,
 			)
 		except Exception as embed_error:
 			logger.error(f"Embedding upsert failed: {embed_error}")
 		try:
-			logger.info("Computing relatedness baseline (fingerprints computed lazily)...")
+			logger.info("Computing relatedness baseline and fingerprints...")
 			baseline_pi, fingerprints = build_relatedness_index(
 				provisions_payload,
 				references_payload,
 				defined_terms_usage_payload,
 				cfg
 			)
-			loader.load_relatedness_data(baseline_pi, fingerprints)
+
+			target_graph_version = None
+			db_gen = None
+			try:
+				db_gen = get_db()
+				db = next(db_gen)
+				current_version = get_graph_version(db)
+				target_graph_version = (current_version or 0) + 1
+				logger.info("Preparing relatedness data for graph version %d.", target_graph_version)
+			except Exception as version_error:
+				logger.error(f"Failed to read current graph version: {version_error}")
+			finally:
+				if db_gen:
+					try:
+						next(db_gen)
+					except StopIteration:
+						pass
+
+			loader.load_relatedness_data(baseline_pi, fingerprints, graph_version=target_graph_version)
+
 			db_gen = None
 			try:
 				db_gen = get_db()
 				db = next(db_gen)
 				new_version = bump_graph_version(db)
-				logger.info("Graph version bumped to %d.", new_version)
+				if target_graph_version and new_version != target_graph_version:
+					logger.warning(
+						"Graph version bumped to %d but expected %d.",
+						new_version,
+						target_graph_version,
+					)
+				else:
+					logger.info("Graph version bumped to %d.", new_version)
 			except Exception as version_error:
 				logger.error(f"Failed to bump graph version: {version_error}")
 			finally:

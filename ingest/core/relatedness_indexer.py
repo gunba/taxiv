@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Dict, List, Tuple, Set
 
 import math
@@ -15,20 +15,22 @@ try:
 except ImportError:
 	np = None
 
-try:
-	from sentence_transformers import SentenceTransformer
-except Exception:
-	SentenceTransformer = None
-
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.semantic import Embedding
+from backend.services.search_filters import is_excluded_provision
+from ingest.core.embedding_backend import (
+	EmbeddingBackendUnavailable,
+	get_embedding_backend,
+)
 from ingest.core.progress import progress_bar, progress_enabled
 
 # Types
 ProvisionId = str
 logger = logging.getLogger(__name__)
+FINGERPRINT_TOP_K = 200
+FINGERPRINT_EPS = 1e-6
 
 
 class RelatednessIndexerConfig:
@@ -41,16 +43,16 @@ class RelatednessIndexerConfig:
 	# Embedding/runtime controls
 	embedding_model_name: str = os.getenv(
 		"RELATEDNESS_EMBED_MODEL",
-		"sentence-transformers/all-MiniLM-L6-v2"
+		"Qwen/Qwen3-Embedding-0.6B"
 	)
+	embedding_device: str | None = os.getenv("RELATEDNESS_EMBED_DEVICE")
 	embedding_batch_size: int = int(os.getenv("RELATEDNESS_EMBED_BATCH", "64"))
-
-	# Deprecated: max_text_chars used to hard-truncate; retained for compatibility but ignored
-	max_text_chars: int = int(os.getenv("RELATEDNESS_MAX_TEXT_CHARS", "0"))
+	embedding_max_length: int = int(os.getenv("RELATEDNESS_EMBED_MAX_LENGTH", "8192"))
+	embedding_instruction: str | None = os.getenv("RELATEDNESS_EMBED_INSTRUCT")
 
 	# Chunked embedding (averaging)
-	chunk_chars: int = int(os.getenv("RELATEDNESS_EMBED_CHUNK_CHARS", "1500"))
-	chunk_overlap: int = int(os.getenv("RELATEDNESS_EMBED_CHUNK_OVERLAP", "200"))
+	chunk_chars: int = int(os.getenv("RELATEDNESS_EMBED_CHUNK_CHARS", "2200"))
+	chunk_overlap: int = int(os.getenv("RELATEDNESS_EMBED_CHUNK_OVERLAP", "350"))
 
 	# Hierarchy weights
 	w_parent_child: float = 1.0
@@ -71,6 +73,41 @@ def _row_normalize(adj: Dict[ProvisionId, Dict[ProvisionId, float]]) -> Dict[
 		else:
 			out[u] = [(v, w / s) for v, w in nbrs.items()]
 	return out
+
+
+def _approx_ppr_push(
+	adj_norm: Dict[ProvisionId, List[Tuple[ProvisionId, float]]],
+	seeds: Dict[ProvisionId, float],
+	gamma: float,
+	eps: float,
+	top_k: int,
+) -> Tuple[List[Tuple[ProvisionId, float]], float]:
+	alpha = 1.0 - gamma
+	ppr = defaultdict(float)
+	residual = defaultdict(float, **seeds)
+	queue = deque(seed for seed in seeds.keys())
+
+	while queue:
+		node = queue.popleft()
+		value = residual[node]
+		if value < eps:
+			continue
+		ppr[node] += alpha * value
+		push_mass = gamma * value
+		residual[node] = 0.0
+		neighbors = adj_norm.get(node, [(node, 1.0)])
+		for nbr, prob in neighbors:
+			increment = push_mass * prob
+			if increment < eps:
+				continue
+			prev = residual[nbr]
+			residual[nbr] = prev + increment
+			if prev < eps <= residual[nbr]:
+				queue.append(nbr)
+
+	items = sorted(ppr.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+	captured = sum(weight for _, weight in items)
+	return items, captured
 
 
 def _power_iteration_pagerank(
@@ -140,13 +177,12 @@ def _split_into_chunks(text: str, *, chunk_chars: int, overlap: int) -> List[str
 
 def upsert_provision_embeddings(
 		provisions_payload: List[dict],
-		model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+		model_name: str = "Qwen/Qwen3-Embedding-0.6B",
 		batch_size: int = 64,
-		max_text_chars: int = 0,  # ignored, retained for API compatibility
 ):
 	"""Compute embeddings for provisions with **chunked averaging**, then upsert into pgvector."""
-	if SentenceTransformer is None or np is None:
-		logger.warning("Embedding model not available. Skipping embeddings upsert.")
+	if np is None:
+		logger.warning("NumPy missing. Skipping embeddings upsert.")
 		return
 
 	cfg = RelatednessIndexerConfig()
@@ -164,17 +200,24 @@ def upsert_provision_embeddings(
 		all_chunks.extend(chunks)
 
 	logger.info(
-		"Encoding %d provisions as %d chunks with %s (avg %.1f chunks/provision)",
+		"Encoding %d provisions as %d chunks with %s on Qwen backend (avg %.1f chunks/provision)",
 		len(provision_ids), len(all_chunks), model_name, (len(all_chunks) / max(1, len(provision_ids)))
 	)
-	model = SentenceTransformer(model_name)
+	try:
+		backend = get_embedding_backend(
+			model_name,
+			device=cfg.embedding_device,
+			max_length=cfg.embedding_max_length,
+		)
+	except EmbeddingBackendUnavailable as exc:
+		logger.warning("Embedding backend unavailable: %s. Skipping embeddings upsert.", exc)
+		return
 
 	# Encode all chunks in a single pass
-	chunk_vectors = model.encode(
+	chunk_vectors = backend.encode(
 		all_chunks,
 		batch_size=batch_size,
-		normalize_embeddings=True,
-		show_progress_bar=progress_enabled(),
+		instruction=cfg.embedding_instruction,
 	)
 
 	# Average per-provision
@@ -334,6 +377,37 @@ def build_relatedness_index(
 		time.perf_counter() - baseline_start,
 	)
 
-	# 5) Fingerprints now computed on-demand
-	logger.info("Skipping global fingerprint precompute; handled lazily at query time.")
-	return baseline_pi, {}
+	logger.info("Computing fingerprints for %d provisions...", len(prov_ids))
+	fingerprint_start = time.perf_counter()
+	fingerprints: Dict[ProvisionId, Tuple[List[Dict], float]] = {}
+	pbar_fingerprints = progress_bar(
+		prov_ids,
+		desc="Fingerprints",
+		unit="node",
+		total=len(prov_ids),
+		leave=False,
+	)
+	for prov_id in pbar_fingerprints:
+		if is_excluded_provision(provision_id=prov_id):
+			continue
+		items, captured = _approx_ppr_push(
+			A_norm,
+			{prov_id: 1.0},
+			gamma=cfg.gamma,
+			eps=FINGERPRINT_EPS,
+			top_k=FINGERPRINT_TOP_K,
+		)
+		filtered = [
+			{"prov_id": neighbor_id, "ppr_mass": float(mass)}
+			for neighbor_id, mass in items
+			if neighbor_id != prov_id and not is_excluded_provision(provision_id=neighbor_id)
+		][:FINGERPRINT_TOP_K]
+		fingerprints[prov_id] = (filtered, float(captured))
+	if hasattr(pbar_fingerprints, "close"):
+		pbar_fingerprints.close()
+	logger.info(
+		"Fingerprint precompute complete (%d cached) in %.2f seconds.",
+		len(fingerprints),
+		time.perf_counter() - fingerprint_start,
+	)
+	return baseline_pi, fingerprints

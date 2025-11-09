@@ -8,6 +8,7 @@ import {SearchIcon} from './components/Icons';
 import {api, type UnifiedSearchItem} from './utils/api';
 import SemanticSearchModal from './components/SemanticSearchModal';
 import taxivLogo from './taxiv.png';
+import {ToastProvider} from './components/ToastProvider';
 
 // Hardcode the primary Act ID for now.
 const PRIMARY_ACT_ID = 'ITAA1997';
@@ -197,8 +198,8 @@ const App: React.FC = () => {
 
     // Main Layout (Design restored from original)
     return (
-		<>
-        <div className="flex h-screen bg-gray-900 text-gray-200 font-sans">
+        <ToastProvider>
+            <div className="flex h-screen bg-gray-900 text-gray-200 font-sans">
             {/* Side Navigation Panel */}
             <div className="w-full md:w-1/4 h-full flex flex-col border-r border-gray-700 bg-gray-800">
                 <header className="p-4 border-b border-gray-700 flex items-center justify-between shrink-0">
@@ -242,15 +243,15 @@ const App: React.FC = () => {
                     onSetMainView={handleSelectNode}
                 />
             </aside>
-        </div>
-        <SemanticSearchModal
-            isOpen={isSemanticSearchOpen}
-            onClose={handleCloseSemanticSearch}
-            onSelectProvision={handleSelectNode}
-            state={semanticSearchState}
-            onStateChange={persistSemanticSearchState}
-        />
-		</>
+            </div>
+            <SemanticSearchModal
+                isOpen={isSemanticSearchOpen}
+                onClose={handleCloseSemanticSearch}
+                onSelectProvision={handleSelectNode}
+                state={semanticSearchState}
+                onStateChange={persistSemanticSearchState}
+            />
+        </ToastProvider>
     );
 };
 

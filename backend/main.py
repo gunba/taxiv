@@ -15,7 +15,7 @@ from backend import crud, schemas
 from backend.config import get_settings
 from backend.database import initialize_engine, Base, get_db
 from backend.schemas import UnifiedSearchRequest, UnifiedSearchResponse
-from backend.services.export_markdown import export_markdown_for_provision
+from backend.services.export_markdown import export_markdown_for_provision, assemble_visible_subtree_markdown
 from backend.services.unified_search import unified_search as unified_search_service
 from backend.services.mcp_formatter import format_provision_detail_md
 
@@ -150,3 +150,21 @@ def unified_search_endpoint(request: UnifiedSearchRequest, db: Session = Depends
 	except Exception as exc:
 		logger.exception("Unified search failed")
 		raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/provisions/markdown_subtree", response_class=PlainTextResponse)
+def get_visible_subtree_markdown(
+		request: schemas.VisibleSubtreeMarkdownRequest,
+		db: Session = Depends(get_db),
+):
+	unique_ids = set(request.visible_descendant_ids or [])
+	unique_ids.add(request.root_internal_id)
+	ordered_ids = crud.get_ordered_internal_ids(db, list(unique_ids))
+	if not ordered_ids:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provision not found")
+
+	markdown = assemble_visible_subtree_markdown(db, ordered_ids)
+	if not markdown:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provision not found")
+
+	return PlainTextResponse(markdown)

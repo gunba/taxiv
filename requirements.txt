@@ -13,7 +13,9 @@ pgvector
 networkx
 numpy
 scipy
-sentence-transformers
+torch>=2.3.0
+transformers>=4.51.0
+cachetools
 
 # Document Parsing & Ingestion
 python-docx

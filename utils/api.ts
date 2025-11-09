@@ -47,6 +47,20 @@ export const api = {
         });
         return handleTextResponse(response);
     },
+    getVisibleSubtreeMarkdown: async (rootInternalId: string, visibleDescendantIds: string[]): Promise<string> => {
+        const response = await fetch(`${API_BASE_PATH}/provisions/markdown_subtree`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'text/plain',
+            },
+            body: JSON.stringify({
+                root_internal_id: rootInternalId,
+                visible_descendant_ids: visibleDescendantIds,
+            }),
+        });
+        return handleTextResponse(response);
+    },
 
     getProvisionByRefId: async (refId: string, actId: string): Promise<TaxDataObject> => {
         const url = new URL(`${API_BASE_PATH}/provisions/lookup`, window.location.origin);
@@ -68,30 +82,6 @@ export const api = {
         const response = await fetch(url.toString());
         return handleResponse<HierarchyNode[]>(response);
     },
-
-    exportMarkdown: async ({
-                               internalId,
-                               includeDescendants = false,
-                               signal,
-                           }: {
-        internalId: string;
-        includeDescendants?: boolean;
-        signal?: AbortSignal;
-    }): Promise<string> => {
-        const response = await fetch(`${API_BASE_PATH}/provisions/export_markdown`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                provision_internal_id: internalId,
-                include_descendants: includeDescendants,
-            }),
-            signal,
-        });
-        const result = await handleResponse<{ markdown: string }>(response);
-        return result.markdown;
-    }
 };
 
 

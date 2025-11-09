@@ -5,6 +5,7 @@ import InteractiveContent from './InteractiveContent';
 import {ChevronRightIcon, ClipboardIcon} from './Icons';
 import {api} from '../utils/api';
 import {formatNodeHeading} from '../utils/nodeFormatting';
+import {sortProvisions} from '../utils/provisionSort';
 
 interface MainContentProps {
     node: TaxDataObject | null;
@@ -57,7 +58,7 @@ const MainContent: React.FC<MainContentProps> = ({
             return;
         }
 
-        setRenderedNodes([node]);
+        setRenderedNodes(sortProvisions([node]));
 
         let isCancelled = false;
 
@@ -150,7 +151,11 @@ const MainContent: React.FC<MainContentProps> = ({
                 return;
             }
 
-            setRenderedNodes(prev => [...prev, detail]);
+            setRenderedNodes(prev => {
+                const withoutDuplicate = prev.filter(entry => entry.internal_id !== detail.internal_id);
+                withoutDuplicate.push(detail);
+                return sortProvisions(withoutDuplicate);
+            });
 
             try {
                 const children = await api.getHierarchy(detail.act_id, detail.internal_id);

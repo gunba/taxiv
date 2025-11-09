@@ -105,6 +105,11 @@ class ExportMarkdownResponse(BaseModel):
 	markdown: str
 
 
+class VisibleSubtreeMarkdownRequest(BaseModel):
+	root_internal_id: str
+	visible_descendant_ids: List[str] = []
+
+
 class UnifiedSearchRequest(BaseModel):
 	query: str
 	k: int = 25

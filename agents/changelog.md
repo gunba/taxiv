@@ -1,7 +1,14 @@
+2025-11-09 - Added the `/api/provisions/markdown_subtree` endpoint and rewired SideNav copy-to-markdown to batch visible descendants via a single request.
+2025-11-09 - Updated `/api/provisions/markdown_subtree` to emit each visible provision's content plus a deduped definitions section, keeping the MCP markdown formatter unchanged.
+2025-11-09 - Enforced deterministic ordering in `MainContent` via `utils/provisionSort.ts` so streamed provisions match the SideNav hierarchy, and documented the constraint in `agents/frontend.md`.
+2025-02-14 - Rewired SideNav copy-to-markdown to call the lightweight detail markdown endpoint, added a shared toast provider, and documented the heavyweight export path for future tooling.
+2025-02-14 - Documented that markdown export currently iterates every descendant/reference/definition via individual ProvisionDetail queries, explaining slow copy-to-markdown operations on large selections.
+2025-11-09 - Documented that ingestion must run via `docker compose exec backend` to reuse container dependencies (pgvector, ImageMagick, LibreOffice, etc.) after diagnosing host-side ModuleNotFound errors.
 2025-11-09 - Centralized MCP markdown formatting in the backend, added `format=markdown` support on the provision detail API, and updated the semantic-search modal copy buttons to consume those endpoints.
 2025-11-09 - Aligned the semantic-search modal "Copy MCP JSON" button with the MCP provision_detail response by fetching and copying full provision detail payloads.
 2025-11-09 - Added ~120-char provision snippets (or 'No content') to unified search responses, wiring them through the MCP server and semantic search modal.
 2025-11-09 - Reworded AGENTS.md and all agent guidance docs to tighten tone and clarify mandatory workflows.
+2025-11-09 - Investigated semantic search latency after the Qwen3 embedding swap and documented the fingerprint cache warm-up behavior in `agents/backend.md`.
 2024-11-24 - Restricted the MCP surface to semantic search + provision detail, slimmed search results to headers only, enriched provision detail responses with breadcrumbs/definitions, and updated docs/UI wiring.
 2024-11-24 - Fixed GraphAnalyzer root sibling ordering by adding a rolling counter, updated docs, and added a regression test.
 2025-11-08 - Bound pgvector parameters via bindparam in `_semantic_neighbors`, documented the fastmcp SSE flow, and validated MCP tools end-to-end.
@@ -27,3 +34,5 @@
 2025-11-08 - Instrumented relatedness indexer workflows with ingestion progress helpers.
 2025-02-18 - Allowed interactive definition buttons to wrap like surrounding text.
 2025-11-09 - Clamped ITAA1997 list levels to prevent orphaned Markdown code blocks.
+2025-02-14 - Swapped provision embeddings to Qwen/Qwen3-Embedding-0.6B, added the HF backend helper + pgvector resize CLI, and documented the new chunking defaults.
+2025-11-09 - Landed the search-performance plan (lexical SQL/indexes, TTL caching, multi-seed PPR, ingestion fingerprint precompute) and suppressed Section 995 from relatedness/search results.
