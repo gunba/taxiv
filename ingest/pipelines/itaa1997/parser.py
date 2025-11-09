@@ -222,6 +222,18 @@ class ListStateTracker:
 		changed = False
 		popped_same_list = False
 		was_empty = not self._stack
+		adjusted_level = info.level
+		# Word sometimes records nested list levels without emitting the parent item.
+		# Clamp the indentation to keep Markdown output from degrading into code blocks.
+		if adjusted_level > 0:
+			if not self._stack:
+				adjusted_level = 0
+			else:
+				max_allowed_level = self._stack[-1].level + 1
+				if adjusted_level > max_allowed_level:
+					adjusted_level = max_allowed_level
+		if adjusted_level != info.level:
+			info = ListInfo(info.num_id, adjusted_level, info.ordered)
 		while self._stack and (
 				self._stack[-1].level > info.level
 				or (self._stack[-1].level == info.level and self._stack[-1].num_id != info.num_id)

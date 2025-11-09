@@ -26,3 +26,4 @@
 2025-11-08 - Added configurable ingestion progress helpers and instrumented pipeline stages.
 2025-11-08 - Instrumented relatedness indexer workflows with ingestion progress helpers.
 2025-02-18 - Allowed interactive definition buttons to wrap like surrounding text.
+2025-11-09 - Clamped ITAA1997 list levels to prevent orphaned Markdown code blocks.
