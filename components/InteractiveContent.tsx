@@ -1,7 +1,97 @@
-import React, {Children, useMemo} from 'react';
+import React, {Children, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {TaxDataObject} from '../types';
+
+const OVERSIZED_MARKDOWN_THRESHOLD = 8000;
+const MARKDOWN_CHUNK_TARGET = 2000;
+const INITIAL_CHUNK_COUNT = 2;
+const CHUNK_INCREMENT = 2;
+
+const chunkMarkdown = (markdown: string): string[] => {
+    if (markdown.length === 0) {
+        return [''];
+    }
+
+    if (markdown.length <= OVERSIZED_MARKDOWN_THRESHOLD) {
+        return [markdown];
+    }
+
+    const lines = markdown.split('\n');
+    const paragraphBlocks: string[] = [];
+    let buffer: string[] = [];
+    let insideFence = false;
+
+    const flushBlock = () => {
+        if (buffer.length === 0) {
+            return;
+        }
+        paragraphBlocks.push(buffer.join('\n'));
+        buffer = [];
+    };
+
+    lines.forEach((line, index) => {
+        buffer.push(line);
+        const trimmed = line.trim();
+        if (/^```/.test(trimmed)) {
+            insideFence = !insideFence;
+        }
+
+        const nextLine = lines[index + 1];
+        const nextIsNonEmpty = nextLine !== undefined && nextLine.trim() !== '';
+        const isParagraphBreak = !insideFence && trimmed === '' && nextIsNonEmpty;
+        if (isParagraphBreak) {
+            flushBlock();
+        }
+    });
+
+    flushBlock();
+
+    const chunks: string[] = [];
+    let chunkBuffer: string[] = [];
+    let chunkLength = 0;
+
+    const pushChunk = () => {
+        if (chunkBuffer.length === 0) {
+            return;
+        }
+        const chunk = chunkBuffer.join('\n');
+        if (chunk.trim().length === 0) {
+            chunkBuffer = [];
+            chunkLength = 0;
+            return;
+        }
+        chunks.push(chunk);
+        chunkBuffer = [];
+        chunkLength = 0;
+    };
+
+    paragraphBlocks.forEach(block => {
+        const blockLength = block.length;
+        if (blockLength >= MARKDOWN_CHUNK_TARGET) {
+            if (chunkBuffer.length > 0) {
+                pushChunk();
+            }
+            chunks.push(block);
+            return;
+        }
+
+        if (chunkLength > 0 && chunkLength + blockLength > MARKDOWN_CHUNK_TARGET) {
+            pushChunk();
+        }
+
+        chunkBuffer.push(block);
+        chunkLength += blockLength;
+    });
+
+    pushChunk();
+
+    if (chunks.length <= 1) {
+        return [markdown];
+    }
+
+    return chunks;
+};
 
 type IndentationResult = {
     children: React.ReactNode;
@@ -301,24 +391,95 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
         );
     };
 
+    const markdownChunks = useMemo(() => chunkMarkdown(node.content_md ?? ''), [node.content_md]);
+    const totalChunks = markdownChunks.length;
+    const isChunked = totalChunks > 1;
+    const initialVisibleChunks = isChunked ? Math.min(INITIAL_CHUNK_COUNT, totalChunks) : totalChunks;
+    const [visibleChunks, setVisibleChunks] = useState(initialVisibleChunks);
+    const observerRef = useRef<IntersectionObserver | null>(null);
+
+    useEffect(() => {
+        setVisibleChunks(initialVisibleChunks);
+    }, [initialVisibleChunks]);
+
+    useEffect(() => {
+        return () => {
+            if (observerRef.current) {
+                observerRef.current.disconnect();
+                observerRef.current = null;
+            }
+        };
+    }, []);
+
+    const increaseVisibleChunks = useCallback(() => {
+        setVisibleChunks(previous => {
+            if (previous >= totalChunks) {
+                return previous;
+            }
+            return Math.min(previous + CHUNK_INCREMENT, totalChunks);
+        });
+    }, [totalChunks]);
+
+    const sentinelCallback = useCallback((node: HTMLDivElement | null) => {
+        if (observerRef.current) {
+            observerRef.current.disconnect();
+            observerRef.current = null;
+        }
+
+        if (!node || !isChunked || visibleChunks >= totalChunks) {
+            return;
+        }
+
+        if (typeof IntersectionObserver === 'undefined') {
+            setVisibleChunks(totalChunks);
+            return;
+        }
+
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    increaseVisibleChunks();
+                }
+            });
+        }, {rootMargin: '256px 0px'});
+
+        observer.observe(node);
+        observerRef.current = observer;
+    }, [increaseVisibleChunks, isChunked, setVisibleChunks, totalChunks, visibleChunks]);
+
+    const renderedChunks = markdownChunks.slice(0, visibleChunks);
+    const shouldRenderSentinel = isChunked && visibleChunks < totalChunks;
 
     return (
-        <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-                p: CustomParagraph,
-                li: CustomListItem,
-                img: CustomImage,
-                // Table styling (restored from original)
-                table: ({node, ...props}) => <table
-                    className="table-auto w-full my-4 border-collapse border border-gray-600" {...props} />,
-                thead: ({node, ...props}) => <thead className="bg-gray-800" {...props} />,
-                th: ({node, ...props}) => <th className="border border-gray-600 px-4 py-2 text-left" {...props} />,
-                td: CustomTableCell,
-            }}
-        >
-            {node.content_md || ""}
-        </ReactMarkdown>
+        <>
+            {renderedChunks.map((chunk, index) => (
+                <ReactMarkdown
+                    key={`markdown-chunk-${index}`}
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                        p: CustomParagraph,
+                        li: CustomListItem,
+                        img: CustomImage,
+                        // Table styling (restored from original)
+                        table: ({node, ...props}) => <table
+                            className="table-auto w-full my-4 border-collapse border border-gray-600" {...props} />,
+                        thead: ({node, ...props}) => <thead className="bg-gray-800" {...props} />,
+                        th: ({node, ...props}) => <th className="border border-gray-600 px-4 py-2 text-left" {...props} />,
+                        td: CustomTableCell,
+                    }}
+                >
+                    {chunk}
+                </ReactMarkdown>
+            ))}
+            {shouldRenderSentinel ? (
+                <div
+                    ref={sentinelCallback}
+                    data-testid="chunk-sentinel"
+                    aria-hidden="true"
+                    className="h-px w-full"
+                />
+            ) : null}
+        </>
     );
 };
 
