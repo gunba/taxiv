@@ -45,6 +45,10 @@ SEED_MULTI_THRESHOLD = 3
 SEARCH_CACHE_TTL_SECONDS = 600
 _SEARCH_CACHE = TTLCache(maxsize=2000, ttl=SEARCH_CACHE_TTL_SECONDS)
 
+# Lexical relaxation controls
+TSQUERY_OR_MAX_TERMS = 8
+TRIGRAM_MATCH_FLOOR = 0.35
+
 # Blend weights
 W_GRAPH = 0.65
 W_LEX = 0.35
@@ -71,6 +75,32 @@ def _normalize_query(text: str) -> str:
 	normalized = re.sub(r"[\/]+", " ", normalized)
 	normalized = re.sub(r"\s+", " ", normalized).strip()
 	return normalized
+
+
+RE_TS_TOKEN = re.compile(r"[0-9a-zA-Z][0-9a-zA-Z\-]*")
+
+
+def _extract_tsquery_terms(normalized: str, max_terms: int = TSQUERY_OR_MAX_TERMS) -> List[str]:
+	"""Derive an ordered subset of distinctive lexemes for a relaxed tsquery."""
+	seen = set()
+	raw: List[Tuple[int, str]] = []
+	for idx, match in enumerate(RE_TS_TOKEN.finditer(normalized.lower())):
+		term = match.group(0)
+		if len(term) < 2 or term in seen:
+			continue
+		seen.add(term)
+		raw.append((idx, term))
+	if not raw:
+		return []
+	selected = sorted(raw, key=lambda item: (-len(item[1]), item[0]))[:max_terms]
+	ordered = sorted(selected, key=lambda item: item[0])
+	return [term for _, term in ordered]
+
+
+def _build_tsquery_or(terms: List[str]) -> str:
+	if not terms:
+		return ""
+	return " | ".join(f"'{term}':*" for term in terms)
 
 
 def _lookup_ref(db: Session, kind: str, ident: str) -> str | None:
@@ -177,56 +207,71 @@ def _lexical_candidates(db: Session, original: str, normalized: str, limit: int 
 	- pg_trgm similarity on title and content
 	Returns internal_id -> score (non-negative)
 	"""
+	terms = _extract_tsquery_terms(normalized)
+	q_or = _build_tsquery_or(terms)
 	# Build tsquerys once
 	params = {
 		"act": ACT_ID,
 		"q_norm": normalized,
 		"q_raw": original,
+		"q_or_en": q_or,
+		"q_or_simple": q_or,
+		"tri_floor": TRIGRAM_MATCH_FLOOR,
 		"limit": limit,
 	}
-	# GREATEST across english/simple ranks and trigram similarity against both raw and normalized
-	sql = text(
-		"""
-		WITH base AS (
-		  SELECT
-		    p.internal_id,
-		    p.type,
-		    coalesce(p.title, '') AS title,
-		    coalesce(p.content_md, '') AS content_md,
-		    to_tsvector('english', coalesce(p.title,'') || ' ' || coalesce(p.content_md,'')) AS tsv_en,
-		    to_tsvector('simple',  coalesce(p.title,'') || ' ' || coalesce(p.content_md,'')) AS tsv_simple
-		  FROM provisions p
-		  WHERE p.act_id = :act
-		),
-		q AS (
-		  SELECT
-		    websearch_to_tsquery('english', :q_norm) AS q_en,
-		    websearch_to_tsquery('simple', :q_norm) AS q_simple
-		)
-		SELECT
-		  b.internal_id,
-		  b.type,
-		  GREATEST(ts_rank_cd(b.tsv_en, q.q_en), ts_rank_cd(b.tsv_simple, q.q_simple)) AS ts_score,
-		  GREATEST(
-		    similarity(lower(b.title),      lower(:q_norm)),
-		    similarity(lower(b.content_md), lower(:q_norm)),
-		    similarity(lower(b.title),      lower(:q_raw)),
-		    similarity(lower(b.content_md), lower(:q_raw))
-		  ) AS tri_score
-		FROM base b, q
-		WHERE (b.tsv_en @@ q.q_en) OR (b.tsv_simple @@ q.q_simple)
-		ORDER BY (
-		     GREATEST(ts_rank_cd(b.tsv_en, q.q_en), ts_rank_cd(b.tsv_simple, q.q_simple)) * 0.7
-		   + GREATEST(
-		       similarity(lower(b.title),      lower(:q_norm)),
-		       similarity(lower(b.content_md), lower(:q_norm)),
-		       similarity(lower(b.title),      lower(:q_raw)),
-		       similarity(lower(b.content_md), lower(:q_raw))
-		     ) * 0.3
-		) DESC
-		LIMIT :limit
-		"""
-	)
+# GREATEST across english/simple ranks and trigram similarity against both raw and normalized
+sql = text(
+"""
+WITH base AS (
+  SELECT
+p.internal_id,
+p.type,
+coalesce(p.title, '') AS title,
+coalesce(p.content_md, '') AS content_md,
+to_tsvector('english', coalesce(p.title,'') || ' ' || coalesce(p.content_md,'')) AS tsv_en,
+to_tsvector('simple',  coalesce(p.title,'') || ' ' || coalesce(p.content_md,'')) AS tsv_simple
+  FROM provisions p
+  WHERE p.act_id = :act
+),
+q AS (
+  SELECT
+websearch_to_tsquery('english', :q_norm) AS q_en,
+websearch_to_tsquery('simple', :q_norm) AS q_simple,
+CASE WHEN :q_or_en <> '' THEN to_tsquery('english', :q_or_en) ELSE NULL END AS q_or_en,
+CASE WHEN :q_or_simple <> '' THEN to_tsquery('simple', :q_or_simple) ELSE NULL END AS q_or_simple
+)
+SELECT
+  ranked.internal_id,
+  ranked.type,
+  ranked.ts_score,
+  ranked.tri_score
+FROM (
+  SELECT
+b.internal_id,
+b.type,
+GREATEST(ts_rank_cd(b.tsv_en, q.q_en), ts_rank_cd(b.tsv_simple, q.q_simple)) AS ts_score,
+GREATEST(
+similarity(lower(b.title),      lower(:q_norm)),
+similarity(lower(b.content_md), lower(:q_norm)),
+similarity(lower(b.title),      lower(:q_raw)),
+similarity(lower(b.content_md), lower(:q_raw))
+) AS tri_score,
+(
+(q.q_en IS NOT NULL AND b.tsv_en @@ q.q_en)
+OR (q.q_simple IS NOT NULL AND b.tsv_simple @@ q.q_simple)
+OR (q.q_or_en IS NOT NULL AND b.tsv_en @@ q.q_or_en)
+OR (q.q_or_simple IS NOT NULL AND b.tsv_simple @@ q.q_or_simple)
+) AS hits_ts
+  FROM base b, q
+) AS ranked
+WHERE ranked.hits_ts OR ranked.tri_score >= :tri_floor
+ORDER BY (
+ ranked.ts_score * 0.7
+   + ranked.tri_score * 0.3
+) DESC
+LIMIT :limit
+"""
+)
 	rows = db.execute(sql, params).fetchall()
 	results: Dict[str, float] = {}
 	for iid, typ, ts, tri in rows:
