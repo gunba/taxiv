@@ -40,3 +40,4 @@
 2025-11-09 - Clamped ITAA1997 list levels to prevent orphaned Markdown code blocks.
 2025-02-14 - Swapped provision embeddings to Qwen/Qwen3-Embedding-0.6B, added the HF backend helper + pgvector resize CLI, and documented the new chunking defaults.
 2025-11-09 - Landed the search-performance plan (lexical SQL/indexes, TTL caching, multi-seed PPR, ingestion fingerprint precompute) and suppressed Section 995 from relatedness/search results.
+2025-11-10 - Added disjunctive lexical fallback for unified search to retain candidates on mixed-term queries.
