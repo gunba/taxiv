@@ -116,6 +116,22 @@ override the model id, device pinning, batch size, context window, or chunk size
 * Section 995 (the definitions container) still ingests but is excluded from ranking/relatedness to keep search
   results useful—users can open it directly via navigation if required.
 
+### MCP + Backend API Enhancements
+
+* `/capabilities` (backend) now advertises the available Acts and default scope so MCP clients can confirm coverage
+  before issuing queries. The MCP server exposes a matching `capabilities()` tool that returns the same metadata.
+* `/api/search/unified` accepts an `offset` for pagination (default `k=10`). Responses include pagination metadata
+  (`offset`, `limit`, `next_offset`, `total`) plus a normalized `parsed` object when flexible section tokens (for example,
+  `"s 6-5"` or `"sec 6.5"`) are detected.
+* `/api/provisions/detail/{internal_id}` defaults to a lean payload and supports optional expansions via
+  `include_breadcrumbs`, `include_children`, `include_definitions`, and `include_references`. Clients can request a
+  subset of fields with `fields=[...]`, and every response now includes caching metadata (`etag`, `last_modified`,
+  `size_bytes`) along with any normalized `parsed` token.
+* `/api/batch_provisions` mirrors the detail flags and hydrates multiple provisions in a single round trip—ideal for
+  MCP workflows that need to expand several hits at once.
+* Flexible token parsing (`s 6-5`, `sec 6.5`, `6 5`) normalizes to canonical sections and echoes the structured parse in
+  both search and detail responses so downstream agents can confirm which provision was resolved.
+
 ### 4\. Access the Application
 
 * **Frontend:** `http://localhost:3000`

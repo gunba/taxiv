@@ -1,4 +1,6 @@
 # backend/crud.py
+import hashlib
+import json
 import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Sequence
@@ -13,6 +15,7 @@ from backend.schemas import (
 	ChildProvisionSummary,
 	DefinedTermUsageDetail,
 	DefinitionWithReferences,
+	ProvisionDetailOptions,
 	ProvisionDetail,
 	ProvisionHierarchy,
 	ReferenceToDetail,
@@ -20,6 +23,11 @@ from backend.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_etag(payload: Dict[str, object]) -> str:
+	encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+	return hashlib.sha256(encoded).hexdigest()
 
 
 def get_acts(db: Session) -> List[models.Act]:
@@ -39,6 +47,29 @@ def get_provision_by_ref_id(db: Session, ref_id: str, act_id: str) -> List[Provi
 
 	# Use the detailed constructor for each provision found
 	return [get_provision_detail(db, p.internal_id) for p in provisions if p]
+
+
+def find_internal_id_by_section(db: Session, act_id: str, section: str) -> Optional[str]:
+	ref_id = f"{act_id}:Section:{section}"
+	row = (
+		db.query(models.Provision.internal_id)
+		.filter(
+			models.Provision.act_id == act_id,
+			func.upper(models.Provision.ref_id) == ref_id.upper(),
+		)
+		.first()
+	)
+	if row and row[0]:
+		return row[0]
+	alt = (
+		db.query(models.Provision.internal_id)
+		.filter(
+			models.Provision.act_id == act_id,
+			func.upper(models.Provision.local_id) == section.upper(),
+		)
+		.first()
+	)
+	return alt[0] if alt else None
 
 
 def get_breadcrumbs(db: Session, internal_id: str) -> List[BreadcrumbItem]:
@@ -180,122 +211,133 @@ def search_hierarchy(db: Session, act_id: str, query: str) -> List[ProvisionHier
 	return [ProvisionHierarchy.model_validate(node) for node in roots]
 
 
-def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDetail]:
+def get_provision_detail(
+	db: Session,
+	internal_id: str,
+	options: ProvisionDetailOptions | None = None,
+) -> Optional[ProvisionDetail]:
 	"""
 	Fetches a provision and manually constructs the detailed view including relationships.
 	"""
+	opts = options or ProvisionDetailOptions()
 	provision = db.get(models.Provision, internal_id)
 	if not provision:
 		return None
 
-	# 1. References To (Outgoing)
-	# We join Reference with Provision (aliased as TargetProvision) to get the target title.
-	TargetProvision = aliased(models.Provision)
-	references_to_query = db.query(
-		models.Reference.target_ref_id,
-		models.Reference.snippet,
-		TargetProvision.title.label("target_title"),
-		models.Reference.target_internal_id
-	).outerjoin(
-		TargetProvision,
-		TargetProvision.internal_id == models.Reference.target_internal_id
-	).filter(models.Reference.source_internal_id == internal_id).all()
+	references_to: List[ReferenceToDetail] = []
+	referenced_by: List[ReferencedByDetail] = []
+	if opts.include_references:
+		TargetProvision = aliased(models.Provision)
+		references_to_query = db.query(
+			models.Reference.target_ref_id,
+			models.Reference.snippet,
+			TargetProvision.title.label("target_title"),
+			models.Reference.target_internal_id
+		).outerjoin(
+			TargetProvision,
+			TargetProvision.internal_id == models.Reference.target_internal_id
+		).filter(models.Reference.source_internal_id == internal_id).all()
 
-	references_to = [ReferenceToDetail.model_validate(r._asdict()) for r in references_to_query]
+		references_to = [ReferenceToDetail.model_validate(r._asdict()) for r in references_to_query]
 
-	# 2. Referenced By (Incoming)
-	SourceProvision = aliased(models.Provision)
-	referenced_by_query = db.query(
-		SourceProvision.internal_id.label("source_internal_id"),
-		SourceProvision.ref_id.label("source_ref_id"),
-		SourceProvision.title.label("source_title")
-	).join(models.Reference, models.Reference.source_internal_id == SourceProvision.internal_id
-		   ).filter(models.Reference.target_internal_id == internal_id).distinct().all()
+		SourceProvision = aliased(models.Provision)
+		referenced_by_query = db.query(
+			SourceProvision.internal_id.label("source_internal_id"),
+			SourceProvision.ref_id.label("source_ref_id"),
+			SourceProvision.title.label("source_title")
+		).join(models.Reference, models.Reference.source_internal_id == SourceProvision.internal_id
+			   ).filter(models.Reference.target_internal_id == internal_id).distinct().all()
 
-	referenced_by = [ReferencedByDetail.model_validate(r._asdict()) for r in referenced_by_query]
+		referenced_by = [ReferencedByDetail.model_validate(r._asdict()) for r in referenced_by_query]
 
-	# 3. Defined Terms Used
-	DefinitionProvision = aliased(models.Provision)
-	terms_used_query = db.query(
-		models.DefinedTermUsage.term_text,
-		DefinitionProvision.internal_id.label("definition_internal_id")
-	).outerjoin(DefinitionProvision, DefinitionProvision.internal_id == models.DefinedTermUsage.definition_internal_id
-				).filter(models.DefinedTermUsage.source_internal_id == internal_id).all()
-
-	defined_terms_used = [DefinedTermUsageDetail.model_validate(t._asdict()) for t in terms_used_query]
-
-	# 4. Breadcrumbs and children for hierarchy context
-	breadcrumbs = get_breadcrumbs(db, internal_id)
-	children_rows = db.query(
-		models.Provision.internal_id,
-		models.Provision.ref_id,
-		models.Provision.title,
-		models.Provision.type,
-	).filter(models.Provision.parent_internal_id == internal_id
-			 ).order_by(models.Provision.sibling_order, models.Provision.title).all()
-	children = [
-		ChildProvisionSummary(
-			internal_id=row.internal_id,
-			ref_id=row.ref_id,
-			title=row.title,
-			type=row.type,
-		)
-		for row in children_rows
-	]
-
-	# 5. Definitions with their outbound references
+	defined_terms_used: List[DefinedTermUsageDetail] = []
 	definitions_with_refs: List[DefinitionWithReferences] = []
-	definition_ids = list({term.definition_internal_id for term in defined_terms_used if term.definition_internal_id})
-	if definition_ids:
-		def_rows = db.query(
+	if opts.include_definitions:
+		DefinitionProvision = aliased(models.Provision)
+		terms_used_query = db.query(
+			models.DefinedTermUsage.term_text,
+			DefinitionProvision.internal_id.label("definition_internal_id")
+		).outerjoin(
+			DefinitionProvision,
+			DefinitionProvision.internal_id == models.DefinedTermUsage.definition_internal_id
+		).filter(models.DefinedTermUsage.source_internal_id == internal_id).all()
+
+		defined_terms_used = [DefinedTermUsageDetail.model_validate(t._asdict()) for t in terms_used_query]
+
+		definition_ids = list({term.definition_internal_id for term in defined_terms_used if term.definition_internal_id})
+		if definition_ids:
+			def_rows = db.query(
+				models.Provision.internal_id,
+				models.Provision.ref_id,
+				models.Provision.title,
+				models.Provision.content_md,
+			).filter(models.Provision.internal_id.in_(definition_ids)).all()
+			def_map = {row.internal_id: row for row in def_rows}
+
+			term_map: Dict[str, List[str]] = defaultdict(list)
+			for usage in defined_terms_used:
+				if usage.definition_internal_id:
+					term_map[usage.definition_internal_id].append(usage.term_text)
+
+			DefinitionTarget = aliased(models.Provision)
+			def_ref_rows = db.query(
+				models.Reference.source_internal_id,
+				models.Reference.target_ref_id,
+				models.Reference.snippet,
+				DefinitionTarget.title.label("target_title"),
+				models.Reference.target_internal_id,
+			).outerjoin(
+				DefinitionTarget,
+				DefinitionTarget.internal_id == models.Reference.target_internal_id
+			).filter(models.Reference.source_internal_id.in_(definition_ids)).all()
+
+			ref_map: Dict[str, List[ReferenceToDetail]] = defaultdict(list)
+			for ref_row in def_ref_rows:
+				ref_map[ref_row.source_internal_id].append(
+					ReferenceToDetail(
+						target_ref_id=ref_row.target_ref_id,
+						snippet=ref_row.snippet,
+						target_title=ref_row.target_title,
+						target_internal_id=ref_row.target_internal_id,
+					)
+				)
+
+			for def_id, def_row in def_map.items():
+				definitions_with_refs.append(DefinitionWithReferences(
+					definition_internal_id=def_id,
+					ref_id=def_row.ref_id,
+					title=def_row.title,
+					content_md=def_row.content_md,
+					term_texts=sorted(set(term_map.get(def_id, []))),
+					references_to=ref_map.get(def_id, []),
+				))
+
+	breadcrumbs: List[BreadcrumbItem] = []
+	if opts.include_breadcrumbs:
+		breadcrumbs = get_breadcrumbs(db, internal_id)
+
+	children: List[ChildProvisionSummary] = []
+	if opts.include_children:
+		children_rows = db.query(
 			models.Provision.internal_id,
 			models.Provision.ref_id,
 			models.Provision.title,
-			models.Provision.content_md,
-		).filter(models.Provision.internal_id.in_(definition_ids)).all()
-		def_map = {row.internal_id: row for row in def_rows}
-
-		term_map: Dict[str, List[str]] = defaultdict(list)
-		for usage in defined_terms_used:
-			if usage.definition_internal_id:
-				term_map[usage.definition_internal_id].append(usage.term_text)
-
-		DefinitionTarget = aliased(models.Provision)
-		def_ref_rows = db.query(
-			models.Reference.source_internal_id,
-			models.Reference.target_ref_id,
-			models.Reference.snippet,
-			DefinitionTarget.title.label("target_title"),
-			models.Reference.target_internal_id,
-		).outerjoin(
-			DefinitionTarget,
-			DefinitionTarget.internal_id == models.Reference.target_internal_id
-		).filter(models.Reference.source_internal_id.in_(definition_ids)).all()
-
-		ref_map: Dict[str, List[ReferenceToDetail]] = defaultdict(list)
-		for ref_row in def_ref_rows:
-			ref_map[ref_row.source_internal_id].append(
-				ReferenceToDetail(
-					target_ref_id=ref_row.target_ref_id,
-					snippet=ref_row.snippet,
-					target_title=ref_row.target_title,
-					target_internal_id=ref_row.target_internal_id,
-				)
+			models.Provision.type,
+		).filter(models.Provision.parent_internal_id == internal_id
+				 ).order_by(models.Provision.sibling_order, models.Provision.title).all()
+		children = [
+			ChildProvisionSummary(
+				internal_id=row.internal_id,
+				ref_id=row.ref_id,
+				title=row.title,
+				type=row.type,
 			)
-
-		for def_id, def_row in def_map.items():
-			definitions_with_refs.append(DefinitionWithReferences(
-				definition_internal_id=def_id,
-				ref_id=def_row.ref_id,
-				title=def_row.title,
-				content_md=def_row.content_md,
-				term_texts=sorted(set(term_map.get(def_id, []))),
-				references_to=ref_map.get(def_id, []),
-			))
+			for row in children_rows
+		]
 
 	# 6. Construct the final response model
 	# Convert the SQLAlchemy model to a dict
-	provision_data = provision.__dict__
+	provision_data = dict(provision.__dict__)
 
 	# Handle LTree conversion (must be string for JSON)
 	if 'hierarchy_path_ltree' in provision_data and provision_data['hierarchy_path_ltree'] is not None:
@@ -303,14 +345,30 @@ def get_provision_detail(db: Session, internal_id: str) -> Optional[ProvisionDet
 	else:
 		provision_data['hierarchy_path_ltree'] = ""
 
+	size_bytes = len((provision_data.get('content_md') or "").encode('utf-8'))
+	last_modified = getattr(provision, 'updated_at', None)
+	etag_basis = {
+		'internal_id': provision.internal_id,
+		'ref_id': provision.ref_id,
+		'content_md': provision.content_md,
+		'updated_at': last_modified.isoformat() if last_modified else None,
+		'children': [child.internal_id for child in children] if opts.include_children else [],
+		'references': [ref.target_internal_id or ref.target_ref_id for ref in references_to] if opts.include_references else [],
+		'definitions': [usage.definition_internal_id or usage.term_text for usage in defined_terms_used] if opts.include_definitions else [],
+	}
+	etag = _compute_etag(etag_basis)
+
 	return ProvisionDetail(
 		**provision_data,
-		references_to=references_to,
-		referenced_by=referenced_by,
-		defined_terms_used=defined_terms_used,
-		definitions_with_references=definitions_with_refs,
-		breadcrumbs=breadcrumbs,
-		children=children,
+		references_to=references_to if opts.include_references else [],
+		referenced_by=referenced_by if opts.include_references else [],
+		defined_terms_used=defined_terms_used if opts.include_definitions else [],
+		definitions_with_references=definitions_with_refs if opts.include_definitions else [],
+		breadcrumbs=breadcrumbs if opts.include_breadcrumbs else [],
+		children=children if opts.include_children else [],
+		etag=etag,
+		last_modified=last_modified,
+		size_bytes=size_bytes,
 	)
 
 

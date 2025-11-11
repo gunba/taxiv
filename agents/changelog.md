@@ -42,3 +42,5 @@
 2025-11-09 - Landed the search-performance plan (lexical SQL/indexes, TTL caching, multi-seed PPR, ingestion fingerprint precompute) and suppressed Section 995 from relatedness/search results.
 2025-11-10 - Added disjunctive lexical fallback for unified search to retain candidates on mixed-term queries.
 2025-02-14 - Streamed oversized provision markdown via IntersectionObserver-driven chunking in `InteractiveContent` and added lazy render regression coverage.
+2025-11-11 - Added MCP capabilities endpoint, paginated search, lean provision detail metadata, and batch provision hydration.
+2025-11-12 - Fixed MCP import usage and normalized backend detail helpers for lean responses with caching metadata.
