@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import textwrap
 from typing import Any, Dict, List, Mapping, Sequence
 
@@ -46,10 +47,12 @@ def _definition_content_snippet(content_md: str | None) -> str:
 
 
 def format_search_results_md(payload: Mapping[str, Any]) -> str:
-	data = _to_dict(payload)
-	qi = data.get("query_interpretation", {}) or {}
-	results = data.get("results", []) or []
-	dbg = data.get("debug", {}) or {}
+        data = _to_dict(payload)
+        qi = data.get("query_interpretation", {}) or {}
+        results = data.get("results", []) or []
+        dbg = data.get("debug", {}) or {}
+        parsed = data.get("parsed") or qi.get("parsed")
+        pagination = data.get("pagination") or {}
 
 	parts: List[str] = []
 	parts.append("### Query interpretation")
@@ -57,12 +60,14 @@ def format_search_results_md(payload: Mapping[str, Any]) -> str:
 	provs = qi.get("provisions") or []
 	defs = qi.get("definitions") or []
 	kws = qi.get("keywords") or ""
-	if provs:
-		lines.append(f"- provisions: `{', '.join(provs)}`")
-	if defs:
-		lines.append(f"- definitions: `{', '.join(defs)}`")
-	if kws:
-		lines.append(f"- keywords: `{mmd_escape(kws)}`")
+        if provs:
+                lines.append(f"- provisions: `{', '.join(provs)}`")
+        if defs:
+                lines.append(f"- definitions: `{', '.join(defs)}`")
+        if kws:
+                lines.append(f"- keywords: `{mmd_escape(kws)}`")
+        if parsed:
+                lines.append(f"- parsed: `{json.dumps(parsed, sort_keys=True)}`")
 	if not lines:
 		lines.append("- *(no structured seeds; likely free-text)*")
 	parts.append("\n".join(lines))
@@ -93,9 +98,19 @@ def format_search_results_md(payload: Mapping[str, Any]) -> str:
 				entry_lines.append(f"> {snippet}")
 			parts.append("  \n".join(entry_lines))
 
-	parts.append("\n### Debug")
-	parts.append(f"- mass_captured: `{dbg.get('mass_captured', 0)}`")
-	parts.append(f"- num_seeds: `{dbg.get('num_seeds', 0)}`")
+        parts.append("\n### Debug")
+        parts.append(f"- mass_captured: `{dbg.get('mass_captured', 0)}`")
+        parts.append(f"- num_seeds: `{dbg.get('num_seeds', 0)}`")
+        if pagination:
+                parts.append("\n### Pagination")
+                pagelines = [
+                        f"- offset: `{pagination.get('offset', 0)}`",
+                        f"- limit: `{pagination.get('limit', 0)}`",
+                        f"- total: `{pagination.get('total', 0)}`",
+                ]
+                next_offset = pagination.get("next_offset")
+                pagelines.append(f"- next_offset: `{next_offset}`")
+                parts.append("\n".join(pagelines))
 
 	parts.append(textwrap.dedent(
 		"""
@@ -116,14 +131,31 @@ def format_provision_detail_md(detail: Any) -> str:
 	internal_id = data.get("internal_id") or ""
 	header = title or ref_id or internal_id or "Provision detail"
 	parts.append(f"## {header}")
-	meta_bits: List[str] = []
-	if ref_id:
-		meta_bits.append(f"`{ref_id}`")
-	typ = data.get("type")
-	if typ:
-		meta_bits.append(f"*{typ}*")
-	if meta_bits:
-		parts.append(" ".join(meta_bits))
+        meta_bits: List[str] = []
+        if ref_id:
+                meta_bits.append(f"`{ref_id}`")
+        typ = data.get("type")
+        if typ:
+                meta_bits.append(f"*{typ}*")
+        if meta_bits:
+                parts.append(" ".join(meta_bits))
+
+        cache_bits: List[str] = []
+        etag = data.get("etag")
+        if etag:
+                cache_bits.append(f"`etag: {mmd_escape(str(etag))}`")
+        last_modified = data.get("last_modified")
+        if last_modified:
+                cache_bits.append(f"`last_modified: {mmd_escape(str(last_modified))}`")
+        size_bytes = data.get("size_bytes")
+        if size_bytes is not None:
+                cache_bits.append(f"`size_bytes: {size_bytes}`")
+        if cache_bits:
+                parts.append(" ".join(cache_bits))
+
+        parsed_info = data.get("parsed")
+        if parsed_info:
+                parts.append(f"\n_Parsed request:_ `{json.dumps(parsed_info, sort_keys=True)}`")
 
 	breadcrumbs = data.get("breadcrumbs") or []
 	if breadcrumbs:

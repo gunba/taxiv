@@ -1,4 +1,6 @@
 # backend/schemas.py
+from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -7,6 +9,14 @@ from pydantic import BaseModel
 class ORMBase(BaseModel):
 	class Config:
 		from_attributes = True  # Pydantic v2 compatibility with SQLAlchemy
+
+
+@dataclass(frozen=True)
+class ProvisionDetailOptions:
+	include_breadcrumbs: bool = True
+	include_children: bool = True
+	include_definitions: bool = True
+	include_references: bool = True
 
 
 class ActList(ORMBase):
@@ -80,6 +90,9 @@ class ProvisionDetail(ORMBase):
 	definitions_with_references: List[DefinitionWithReferences] = []
 	breadcrumbs: List[BreadcrumbItem] = []
 	children: List[ChildProvisionSummary] = []
+	etag: Optional[str] = None
+	last_modified: Optional[datetime] = None
+	size_bytes: Optional[int] = None
 
 
 class ProvisionHierarchy(ORMBase):
@@ -110,9 +123,24 @@ class VisibleSubtreeMarkdownRequest(BaseModel):
 	visible_descendant_ids: List[str] = []
 
 
+class BatchProvisionRequest(BaseModel):
+	ids: List[str]
+	include_breadcrumbs: bool = False
+	include_children: bool = False
+	include_definitions: bool = False
+	include_references: bool = True
+	fields: Optional[List[str]] = None
+
+
+class BatchProvisionResponse(BaseModel):
+	results: List[dict]
+	parsed: Optional[dict] = None
+
+
 class UnifiedSearchRequest(BaseModel):
 	query: str
-	k: int = 25
+	k: int = 10
+	offset: int = 0
 
 
 class UnifiedSearchResult(BaseModel):
@@ -124,7 +152,16 @@ class UnifiedSearchResult(BaseModel):
 	content_snippet: str
 
 
+class SearchPagination(BaseModel):
+	offset: int
+	limit: int
+	total: int
+	next_offset: Optional[int] = None
+
+
 class UnifiedSearchResponse(BaseModel):
 	query_interpretation: dict
 	results: List[UnifiedSearchResult]
 	debug: Optional[dict] = None
+	pagination: Optional[SearchPagination] = None
+	parsed: Optional[dict] = None
