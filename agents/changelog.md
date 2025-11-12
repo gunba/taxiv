@@ -1,3 +1,6 @@
+2025-11-12 - Updated AGENTS/testing guidance to mandate running the relevant test suites (and documenting commands) after every change, referencing the new host-side workflows.
+2025-11-12 - Added a host-based test workflow (requirements-dev, npm scripts, run-tests.sh) and documented the steps in README for Vitest + Pytest parity.
+2025-02-14 - Documented VPS access credentials, Caddy proxy wiring, ChatGPT MCP connector steps, and day-to-day service management in `agents/deployment.md`.
 2025-02-14 - Added deployment/capacity planning notes for Qwen3 embeddings to `agents/backend.md`, covering CPU memory, throughput, and scaling guidance.
 2025-02-14 - Swapped the backend container to a multi-worker uvicorn launcher (`scripts/start-backend.sh`), documented the new concurrency env vars, bumped SQLAlchemy pool defaults, and raised Postgres max connections in compose.
 2025-02-14 - Documented the FastMCP decoupling (formatter vendored into `mcp_server`) and the VPS deployment procedure, including restoring the Postgres volume and setting up the `.env` with new worker/pool knobs.

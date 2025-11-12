@@ -144,6 +144,28 @@ override the model id, device pinning, batch size, context window, or chunk size
 The Docker Compose setup enables live reloading for both the frontend (Vite HMR) and the backend (Uvicorn reload).
 Changes made to the source code will be reflected automatically.
 
+## Running Tests Locally
+
+You can execute both the Vitest (React) suite and the Python (FastAPI + ingest) suites directly on your host—no
+containers required.
+
+1. Install Node dependencies: `npm install`.
+2. (Recommended) Create a virtual environment, then install Python dev dependencies:
+   ```bash
+   python -m venv .venv && source .venv/bin/activate
+   pip install -r requirements-dev.txt
+   ```
+3. Run every test suite via `scripts/run-tests.sh`. The script fails fast if either stack reports a failure and accepts
+   additional arguments that are passed through to `pytest`, e.g. `scripts/run-tests.sh -k media`.
+
+Individual commands:
+
+* Frontend only: `npm run test:frontend` (or `npm run test:frontend:watch` for interactive runs).
+* Python suites only: `npm run test:python` (alias for `pytest tests/backend tests/ingest`).
+
+If you encounter missing system libraries (e.g., ImageMagick for ingestion media tests), install the same packages the
+backend container uses (see `Dockerfile.backend`) so rasterization helpers can invoke the expected binaries.
+
 ## SideNav Markdown Copy
 
 The SideNav shows a clipboard button when you hover over (or keyboard-focus) a provision row. The control now copies

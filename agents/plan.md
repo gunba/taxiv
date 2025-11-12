@@ -37,7 +37,8 @@ Describe the high-level approach, impacted components, data flows, and key inter
 
 ## 5. Testing Strategy
 
-Define the validation approach (unit, integration, e2e) and list specific suites, scripts, or scenarios.
+Define the validation approach (unit, integration, e2e) and list the exact commands/scripts you will run (e.g.,
+`npm run test:frontend`, `pytest tests/backend`).
 
 ## 6. Risks and Mitigation
 

@@ -236,7 +236,8 @@ def _trim_png_canvas(png_bytes: bytes) -> bytes:
             shrink_w = width - trimmed_width
             shrink_h = height - trimmed_height
             known_full_page = (width, height) == (595, 842)
-            minimal_shrink = shrink_w < 4 and shrink_h < 4
+            # Ignore tiny differences (e.g., 1-2px borders from anti-aliased drawings).
+            minimal_shrink = shrink_w <= 8 and shrink_h <= 8
             if trimmed_width <= 0 or trimmed_height <= 0:
                 return png_bytes
             if not known_full_page and minimal_shrink:

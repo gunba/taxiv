@@ -11,10 +11,9 @@ os.environ.setdefault("DB_USER", "test")
 os.environ.setdefault("DB_PASSWORD", "test")
 os.environ.setdefault("DB_NAME", "test")
 
-from fastapi.testclient import TestClient
-
 import backend.main as backend_main
 from backend import schemas
+from backend.services import export_markdown as export_service
 
 
 def _make_detail(
@@ -55,8 +54,6 @@ def _make_detail(
 
 
 def test_markdown_subtree_endpoint_returns_content_and_definitions(monkeypatch):
-	app = backend_main.app
-	client = TestClient(app)
 	call_order = []
 
 	def fake_ordered_ids(db, ids):
@@ -101,22 +98,18 @@ def test_markdown_subtree_endpoint_returns_content_and_definitions(monkeypatch):
 		call_order.append(internal_id)
 		return detail_map[internal_id]
 
-	app.dependency_overrides[backend_main.get_db] = lambda: None
 	monkeypatch.setattr(backend_main.crud, "get_ordered_internal_ids", fake_ordered_ids)
 	monkeypatch.setattr(backend_main.crud, "get_provision_detail", fake_get_detail)
+	monkeypatch.setattr(export_service.crud, "get_provision_detail", fake_get_detail)
 
-	response = client.post(
-		"/api/provisions/markdown_subtree",
-		json={
-			"root_internal_id": "root",
-			"visible_descendant_ids": ["chapter", "section", "section"],
-		},
+	request = schemas.VisibleSubtreeMarkdownRequest(
+		root_internal_id="root",
+		visible_descendant_ids=["chapter", "section", "section"],
 	)
 
-	app.dependency_overrides.pop(backend_main.get_db, None)
+	response = backend_main.get_visible_subtree_markdown(request, db=None)
 
-	assert response.status_code == 200
-	body = response.text
+	body = response.body.decode()
 	assert "### Root Title" in body
 	assert "Root body text" in body
 	assert "### Chapter Title" in body

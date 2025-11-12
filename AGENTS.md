@@ -21,4 +21,7 @@ as binding policy.
       research.  
    b. Inspect the touched code paths for dead or unused logic, remove it, and call out the cleanup explicitly to the
       user.  
-   c. Append a single-line summary of the work to `agents/changelog.md`.
+   c. Append a single-line summary of the work to `agents/changelog.md`.  
+   d. Run every automated test suite impacted by your changes (use `scripts/run-tests.sh` when both stacks move, or the
+      narrower `npm run test:frontend` / `npm run test:python` commands) and include the results or blockers in your
+      final handoff. If a suite cannot run locally, state why and what was attempted.

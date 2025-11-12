@@ -9,8 +9,9 @@ export default defineConfig({
             '@': path.resolve(__dirname, '.'),
         },
     },
-    test: {
-        environment: 'jsdom',
-        setupFiles: ['tests/setupTests.ts'],
-    },
+	test: {
+		environment: 'jsdom',
+		setupFiles: ['tests/setupTests.ts'],
+		pool: 'threads', // Avoid fork worker crashes on Node 20+/25 sandbox hosts
+	},
 });
