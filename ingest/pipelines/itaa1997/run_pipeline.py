@@ -11,6 +11,7 @@ from ingest.core.progress import progress_bar, progress_write
 from backend.database import get_db
 from backend.models.semantic import bump_graph_version
 from backend.services.relatedness_engine import get_graph_version
+from ingest.pipelines.base_act import BaseActPipeline
 
 # Import core modules
 # MODIFICATION: Import the module itself
@@ -409,6 +410,7 @@ def run_analysis_and_loading(config: Config):
 		# Load the data (Bulk insert)
 		loader.load_data(provisions_payload, references_payload, defined_terms_usage_payload)
 		cfg = RelatednessIndexerConfig()
+		cfg.act_id = config.ACT_ID
 		try:
 			logger.info("Upserting provision embeddings into pgvector...")
 			upsert_provision_embeddings(
@@ -484,31 +486,37 @@ def run_analysis_and_loading(config: Config):
 # MAIN EXECUTION
 # =============================================================================
 
+def _ensure_env_loaded():
+	if os.getenv("DB_HOST"):
+		return
+	try:
+		from dotenv import load_dotenv
+
+		dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
+		if os.path.exists(dotenv_path):
+			load_dotenv(dotenv_path)
+			logger.info("Loaded local .env file for environment variables.")
+		else:
+			logger.warning("Local .env file not found. Relying on system environment variables.")
+	except ImportError:
+		logger.warning("python-dotenv not installed. Relying on system environment variables.")
+
+
+class Itaa1997Pipeline(BaseActPipeline):
+	def __init__(self):
+		self.config = Config()
+		super().__init__(self.config.ACT_ID)
+
+	def run_phase_a(self) -> None:
+		run_parsing_and_enrichment(self.config)
+
+	def run_phase_b(self) -> None:
+		run_analysis_and_loading(self.config)
+
+
 def main():
-	config = Config()
-
-	# Set environment variable context for database connection (Required if running locally outside Docker)
-	# If running inside Docker, these are already set by docker-compose.
-	if not os.getenv("DB_HOST"):
-		# Attempt to load .env from the project root
-		try:
-			from dotenv import load_dotenv
-			# Calculate path relative to this script: ingest/pipelines/itaa1997/run_pipeline.py -> project_root/.env
-			dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
-			if os.path.exists(dotenv_path):
-				load_dotenv(dotenv_path)
-				logger.info("Loaded local .env file for environment variables.")
-			else:
-				logger.warning("Local .env file not found. Relying on system environment variables.")
-		except ImportError:
-			logger.warning("python-dotenv not installed. Relying on system environment variables.")
-
-	# === PHASE A: PARSING AND ENRICHMENT ===
-	# Comment this out if you only want to run Phase B on existing intermediate files.
-	run_parsing_and_enrichment(config)
-
-	# === PHASE B: ANALYSIS AND LOADING ===
-	run_analysis_and_loading(config)
+	_ensure_env_loaded()
+	Itaa1997Pipeline().run()
 
 
 if __name__ == '__main__':

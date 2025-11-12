@@ -1,3 +1,5 @@
+2025-11-12 - Captured a multi-act readiness audit (docs/multi-act-readiness.md) covering ITAA-specific coupling across ingestion, backend search, and the frontend act picker gap.
+2025-11-12 - Generalized the stack for multi-act datasets: added config/datasets.json, act-aware search/relatedness APIs, frontend act selector, a base ingestion pipeline, and a document ingestion path with `/api/documents/search`.
 2025-11-12 - Updated AGENTS/testing guidance to mandate running the relevant test suites (and documenting commands) after every change, referencing the new host-side workflows.
 2025-11-12 - Added a host-based test workflow (requirements-dev, npm scripts, run-tests.sh) and documented the steps in README for Vitest + Pytest parity.
 2025-02-14 - Documented VPS access credentials, Caddy proxy wiring, ChatGPT MCP connector steps, and day-to-day service management in `agents/deployment.md`.

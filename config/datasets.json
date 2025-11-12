@@ -1,0 +1,51 @@
+{
+  "default_act": "ITAA1997",
+  "acts": [
+    {
+      "id": "ITAA1997",
+      "title": "Income Tax Assessment Act 1997",
+      "description": "Primary income tax legislation ingested during the pilot phase.",
+      "exclusions": {
+        "ref_ids": [
+          "ITAA1997:Section:995-1"
+        ]
+      },
+      "tokenizer": {
+        "supports_section_gaps": true,
+        "explicit_prefixes": ["ITA", "ITAA1997"]
+      },
+      "ingestion": {
+        "pipeline": "ingest.pipelines.itaa1997.run_pipeline",
+        "definition_anchor": "ITAA1997:Section:995-1"
+      }
+    },
+    {
+      "id": "DEMOACT",
+      "title": "Demonstration Tax Act",
+      "description": "Placeholder dataset used for regression tests and adapter bring-up.",
+      "exclusions": {
+        "ref_ids": []
+      },
+      "tokenizer": {
+        "supports_section_gaps": true,
+        "explicit_prefixes": ["DEMOACT"]
+      },
+      "ingestion": {
+        "pipeline": "",
+        "definition_anchor": null
+      }
+    }
+  ],
+  "datasets": [
+    {
+      "id": "TAX_CASES",
+      "title": "Tax Rulings & Cases",
+      "type": "document",
+      "description": "Individual case files and rulings with document/chunk storage.",
+      "ingestion": {
+        "pipeline": "ingest.pipelines.documents.run_pipeline",
+        "input_dir": "ingest/data/documents/tax_cases"
+      }
+    }
+  ]
+}

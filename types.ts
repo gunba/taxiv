@@ -1,5 +1,19 @@
 // types.ts
 
+export interface ActInfo {
+    id: string;
+    title: string;
+    description?: string | null;
+    is_default?: boolean;
+}
+
+export interface DatasetInfo {
+    id: string;
+    title: string;
+    type: string;
+    description?: string | null;
+}
+
 // Matches ReferenceToDetail schema
 export interface ReferenceInfo {
     target_ref_id: string;

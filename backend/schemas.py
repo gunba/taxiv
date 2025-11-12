@@ -22,6 +22,29 @@ class ProvisionDetailOptions:
 class ActList(ORMBase):
 	id: str
 	title: str
+	description: Optional[str] = None
+	is_default: bool = False
+
+
+class DatasetInfo(BaseModel):
+	id: str
+	title: str
+	type: str
+	description: Optional[str] = None
+
+
+class DocumentSummary(BaseModel):
+	id: str
+	title: str
+	doc_type: str
+	snippet: Optional[str] = None
+
+
+class DocumentSearchResponse(BaseModel):
+	results: List[DocumentSummary]
+	offset: int
+	limit: int
+	total: int
 
 
 # Schemas for related data serialization (structured for frontend consumption)
@@ -130,6 +153,7 @@ class BatchProvisionRequest(BaseModel):
 	include_definitions: bool = False
 	include_references: bool = True
 	fields: Optional[List[str]] = None
+	act_id: Optional[str] = None
 
 
 class BatchProvisionResponse(BaseModel):
@@ -141,6 +165,7 @@ class UnifiedSearchRequest(BaseModel):
 	query: str
 	k: int = 10
 	offset: int = 0
+	act_id: Optional[str] = None
 
 
 class UnifiedSearchResult(BaseModel):
@@ -150,6 +175,7 @@ class UnifiedSearchResult(BaseModel):
 	type: str
 	score_urs: int
 	content_snippet: str
+	act_id: str
 
 
 class SearchPagination(BaseModel):

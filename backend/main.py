@@ -13,6 +13,13 @@ from sqlalchemy.orm import Session
 # Import models to register them
 # Import CRUD and Schemas
 from backend import crud, schemas
+from backend.act_metadata import (
+        ensure_valid_act_id,
+        get_act_metadata,
+        get_default_act_id,
+        list_acts as list_metadata_acts,
+        list_datasets as list_metadata_datasets,
+)
 from backend.config import get_settings
 from backend.database import initialize_engine, Base, get_db
 from backend.schemas import UnifiedSearchRequest, UnifiedSearchResponse
@@ -117,9 +124,43 @@ def get_capabilities(db: Session = Depends(get_db)):
 # --- API Endpoints (Using /api prefix) ---
 
 @app.get("/api/acts", response_model=List[schemas.ActList])
-def list_acts(db: Session = Depends(get_db)):
-	"""Lists all available Acts in the database."""
-	return crud.get_acts(db)
+def list_acts_endpoint(db: Session = Depends(get_db)):
+	"""Lists available Acts with default metadata."""
+	metadata_map = {meta.id: meta for meta in list_metadata_acts()}
+	db_records = {record.id: record for record in crud.get_acts(db)}
+	response: List[schemas.ActList] = []
+	for act_id, meta in metadata_map.items():
+		record = db_records.get(act_id)
+		response.append(schemas.ActList(
+			id=act_id,
+			title=record.title if record else meta.title,
+			description=(record.description if record else meta.description) or None,
+			is_default=bool(meta.is_default),
+		))
+	for record_id, record in db_records.items():
+		if record_id in metadata_map:
+			continue
+		response.append(schemas.ActList(
+			id=record.id,
+			title=record.title,
+			description=record.description,
+			is_default=False,
+		))
+	return response
+
+
+@app.get("/api/datasets", response_model=List[schemas.DatasetInfo])
+def list_datasets_endpoint():
+	"""Surface non-act datasets (e.g., cases/rulings)."""
+	return [
+		schemas.DatasetInfo(
+			id=meta.id,
+			title=meta.title,
+			type=meta.type,
+			description=meta.description,
+		)
+		for meta in list_metadata_datasets()
+	]
 
 
 @app.get("/api/provisions/detail/{internal_id}")
@@ -135,6 +176,10 @@ def get_provision_detail(
         include_definitions: bool = Query(False, description="Include definitions and defined terms."),
         include_references: bool = Query(True, description="Include references and inbound citations."),
         fields: Optional[List[str]] = Query(None, description="Subset of fields to include in the response."),
+        act_id: Optional[str] = Query(
+                None,
+                description="Contextual act ID for flexible tokens (defaults to configured primary act).",
+        ),
         db: Session = Depends(get_db),
 ):
         """
@@ -151,8 +196,9 @@ def get_provision_detail(
         target_id = internal_id.strip()
 
         provision_detail = crud.get_provision_detail(db, target_id, options=options)
+        default_act = ensure_valid_act_id(act_id) if act_id else get_default_act_id()
         if not provision_detail:
-                token = parse_flexible_token(internal_id)
+                token = parse_flexible_token(internal_id, default_act=default_act)
                 if token:
                         resolved_id = crud.find_internal_id_by_section(db, token.act, token.section)
                         if resolved_id:
@@ -194,11 +240,12 @@ def batch_provision_details(
         parsed_map: Dict[str, dict] = {}
         results: List[dict] = []
 
+        default_act = ensure_valid_act_id(request.act_id) if request.act_id else get_default_act_id()
         for identifier in request.ids:
                 parsed_info: Optional[dict] = None
                 detail = crud.get_provision_detail(db, identifier, options=options)
                 if not detail:
-                        token = parse_flexible_token(identifier)
+                        token = parse_flexible_token(identifier, default_act=default_act)
                         if token:
                                 resolved_id = crud.find_internal_id_by_section(db, token.act, token.section)
                                 if resolved_id:
@@ -278,7 +325,13 @@ def export_markdown(request: schemas.ExportMarkdownRequest, db: Session = Depend
 @app.post("/api/search/unified", response_model=UnifiedSearchResponse)
 def unified_search_endpoint(request: UnifiedSearchRequest, db: Session = Depends(get_db)):
         try:
-                payload = unified_search_service(db, request.query, request.k, request.offset)
+                payload = unified_search_service(
+                        db=db,
+                        query=request.query,
+                        k=request.k,
+                        offset=request.offset,
+                        act_id=request.act_id,
+                )
                 return payload
         except Exception as exc:
                 logger.exception("Unified search failed")
@@ -301,3 +354,13 @@ def get_visible_subtree_markdown(
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provision not found")
 
 	return PlainTextResponse(markdown)
+
+
+@app.get("/api/documents/search", response_model=schemas.DocumentSearchResponse)
+def search_documents_endpoint(
+		query: str = Query(..., min_length=2, description="Full-text query for document datasets."),
+		limit: int = Query(20, ge=1, le=100),
+		offset: int = Query(0, ge=0),
+		db: Session = Depends(get_db),
+):
+	return crud.search_documents(db, query, limit, offset)

@@ -94,6 +94,23 @@ docker-compose exec backend python -m ingest.pipelines.itaa1997.run_pipeline
 
 This process may take time. Subsequent runs will be faster due to LLM caching (`ingest/cache/llm_cache.db`).
 
+### Multi-Act + Document Datasets
+
+Available acts and document datasets are declared in `config/datasets.json`. Each entry defines exclusions, ingest
+pipelines, and (for documents) the input directory. To onboard a new act, add an entry to the `acts` array, point the
+`ingestion.pipeline` field at the implementing module, and run that module via
+`docker compose exec backend python -m ingest.pipelines.<act>.run_pipeline`.
+
+Case files, rulings, and other standalone documents live in datasets. Populate `ingest/data/documents/<dataset>` with
+JSON/Markdown files (see `config/datasets.json` for the expected folder) and run:
+
+```bash
+docker compose exec backend python -m ingest.pipelines.documents.run_pipeline
+```
+
+The script normalizes content into the `documents`/`document_chunks` tables so search, embeddings, and downstream tools
+can treat them alongside acts.
+
 ### Embeddings & pgvector
 
 Provision embeddings now rely on Hugging Face's `Qwen/Qwen3-Embedding-0.6B` model via Transformers/Torch. The ingestion

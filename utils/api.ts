@@ -1,5 +1,5 @@
 // utils/api.ts
-import type {HierarchyNode, TaxDataObject} from '../types';
+import type {ActInfo, DatasetInfo, HierarchyNode, TaxDataObject} from '../types';
 
 // We use the path '/api' which Vite proxies to the backend container.
 const API_BASE_PATH = '/api';
@@ -23,6 +23,16 @@ async function handleTextResponse(response: Response): Promise<string> {
 }
 
 export const api = {
+    getActs: async (): Promise<ActInfo[]> => {
+        const response = await fetch(`${API_BASE_PATH}/acts`);
+        return handleResponse<ActInfo[]>(response);
+    },
+
+    getDatasets: async (): Promise<DatasetInfo[]> => {
+        const response = await fetch(`${API_BASE_PATH}/datasets`);
+        return handleResponse<DatasetInfo[]>(response);
+    },
+
     getHierarchy: async (actId: string, parentId?: string): Promise<HierarchyNode[]> => {
         const url = new URL(`${API_BASE_PATH}/provisions/hierarchy/${actId}`, window.location.origin);
         if (parentId) {
@@ -32,8 +42,33 @@ export const api = {
         return handleResponse<HierarchyNode[]>(response);
     },
 
-    getProvisionDetail: async (internalId: string): Promise<TaxDataObject> => {
-        const response = await fetch(`${API_BASE_PATH}/provisions/detail/${internalId}`);
+    getProvisionDetail: async (
+        internalId: string,
+        options?: {
+            includeBreadcrumbs?: boolean;
+            includeChildren?: boolean;
+            includeDefinitions?: boolean;
+            includeReferences?: boolean;
+            actId?: string;
+        },
+    ): Promise<TaxDataObject> => {
+        const url = new URL(`${API_BASE_PATH}/provisions/detail/${internalId}`, window.location.origin);
+        if (options?.includeBreadcrumbs) {
+            url.searchParams.append('include_breadcrumbs', '1');
+        }
+        if (options?.includeChildren) {
+            url.searchParams.append('include_children', '1');
+        }
+        if (options?.includeDefinitions) {
+            url.searchParams.append('include_definitions', '1');
+        }
+        if (options?.includeReferences) {
+            url.searchParams.append('include_references', '1');
+        }
+        if (options?.actId) {
+            url.searchParams.append('act_id', options.actId);
+        }
+        const response = await fetch(url.toString());
         return handleResponse<TaxDataObject>(response);
     },
 
@@ -87,6 +122,7 @@ export const api = {
 
 export type UnifiedSearchItem = {
     id: string;
+    act_id: string;
     ref_id: string;
     title: string;
     type: string;
@@ -105,11 +141,11 @@ export type UnifiedSearchResponse = {
     debug?: { mass_captured: number; num_seeds: number };
 };
 
-export const unifiedSearch = async (query: string, k = 25): Promise<UnifiedSearchResponse> => {
+export const unifiedSearch = async (query: string, k = 25, actId?: string): Promise<UnifiedSearchResponse> => {
     const response = await fetch(`${API_BASE_PATH}/search/unified`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query, k})
+        body: JSON.stringify({query, k, act_id: actId})
     });
     return handleResponse<UnifiedSearchResponse>(response);
 };

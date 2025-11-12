@@ -5,6 +5,7 @@ import {copyToClipboard} from '../utils/clipboard';
 
 interface SemanticSearchModalProps {
 	isOpen: boolean;
+	actId: string;
 	onClose: () => void;
 	onSelectProvision: (internalId: string) => void;
 	state: {
@@ -14,7 +15,14 @@ interface SemanticSearchModalProps {
 	onStateChange: (nextState: { query: string; results: UnifiedSearchItem[] }) => void;
 }
 
-const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({isOpen, onClose, onSelectProvision, state, onStateChange}) => {
+const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
+	isOpen,
+	actId,
+	onClose,
+	onSelectProvision,
+	state,
+	onStateChange,
+}) => {
 	const [query, setQuery] = useState(state.query);
 	const [results, setResults] = useState<UnifiedSearchItem[]>(state.results);
 	const [isLoading, setIsLoading] = useState(false);
@@ -77,7 +85,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({isOpen, onClos
 		setIsLoading(true);
 		setError(null);
 		try {
-			const response = await unifiedSearch(trimmed, 25);
+			const response = await unifiedSearch(trimmed, 25, actId);
 			const newResults = response.results ?? [];
 			setResults(newResults);
 			onStateChange({query, results: newResults});
@@ -89,7 +97,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({isOpen, onClos
 		} finally {
 			setIsLoading(false);
 		}
-	}, [onStateChange, query]);
+	}, [actId, onStateChange, query]);
 
 	const handleSubmit = useCallback(
 		(event: React.FormEvent) => {
@@ -157,7 +165,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({isOpen, onClos
 			<header className="flex items-center justify-between border-b border-gray-700 px-6 py-4">
 					<div>
 						<p className="text-sm uppercase tracking-wide text-gray-400">Semantic search</p>
-						<h2 className="text-xl font-semibold text-white">Explore the act with semantic search</h2>
+						<h2 className="text-xl font-semibold text-white">Explore {actId}</h2>
 					</div>
 					<button
 						type="button"

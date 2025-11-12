@@ -206,7 +206,7 @@ const MainContent: React.FC<MainContentProps> = ({
         }
     }, [renderedNodes.length, pendingCount, isLoadingChildren, loadNextProvision]);
 
-    if (isLoading) {
+    if (isLoading && !topProvision) {
         return <div className="p-8 text-center text-gray-400">Loading provision details...</div>;
     }
 
@@ -229,7 +229,7 @@ const MainContent: React.FC<MainContentProps> = ({
                     {index === 0 ? (
                         <>
                             <div className="flex items-center justify-between pb-4 mb-4 border-b border-gray-700">
-                                <div className="flex items-center text-sm text-gray-400 overflow-hidden">
+                                <div className="flex items-center text-sm text-gray-400 overflow-hidden gap-3">
                                     {breadcrumbs.length > 0 ? breadcrumbs.map((crumb, crumbIndex) => (
                                         <React.Fragment key={crumb.internal_id}>
                                             <button
@@ -245,6 +245,11 @@ const MainContent: React.FC<MainContentProps> = ({
                                     )) : (
                                         <span
                                             className="text-gray-500 text-xs">(Loading breadcrumbs or API unavailable)</span>
+                                    )}
+                                    {isLoading && (
+                                        <span className="text-xs text-blue-300 animate-pulse whitespace-nowrap">
+                                            Updating…
+                                        </span>
                                     )}
                                 </div>
                                 <button

@@ -50,9 +50,17 @@ class Backend:
 	async def close(self):
 		await self.client.aclose()
 
-        async def unified_search(self, query: str, k: int = 10, offset: int = 0) -> Dict[str, Any]:
+        async def unified_search(
+                self,
+                query: str,
+                k: int = 10,
+                offset: int = 0,
+                act_id: Optional[str] = None,
+        ) -> Dict[str, Any]:
                 url = f"{self.base_url}/api/search/unified"
-                payload = {"query": query, "k": k, "offset": offset}
+                payload: Dict[str, Any] = {"query": query, "k": k, "offset": offset}
+                if act_id:
+                        payload["act_id"] = act_id
                 r = await self.client.post(url, json=payload)
                 r.raise_for_status()
                 return r.json()
@@ -142,7 +150,13 @@ def create_server() -> FastMCP:
 		return INSTRUCTIONS.strip()
 
         @mcp.tool()
-        async def semantic_search(query: str, k: int = 10, offset: int = 0, format: str = "markdown") -> str:
+        async def semantic_search(
+                query: str,
+                k: int = 10,
+                offset: int = 0,
+                format: str = "markdown",
+                act_id: Optional[str] = None,
+        ) -> str:
                 """
                 Run semantic/relatedness search. Returns provision headers only so you can drill down safely.
                 """
@@ -153,6 +167,7 @@ def create_server() -> FastMCP:
                         query=query,
                         k=min(max(int(k), 1), 100),
                         offset=max(int(offset), 0),
+                        act_id=act_id,
                 )
 		if format.lower() == "json":
 			return "```json\n" + json.dumps(payload, indent=2) + "\n```"

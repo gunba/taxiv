@@ -54,6 +54,7 @@ def test_lexical_candidates_includes_relaxed_tsquery_and_trigram_floor():
 		session,
 		original="Ordinary income termination payment",
 		normalized="ordinary income termination payment",
+		act_id="ITAA1997",
 		limit=5,
 	)
 

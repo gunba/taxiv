@@ -15,7 +15,7 @@ from backend.models.legislation import (
 	RelatednessFingerprint,
 )
 from backend.models.semantic import Embedding, GraphMeta, ensure_graph_meta_seed
-from backend.services.search_filters import EXCLUDED_INTERNAL_IDS, is_excluded_provision
+from backend.services.search_filters import is_excluded_provision
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,14 @@ EMBED_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 _SEM_VECTOR_CACHE: LRUCache[str, object] = LRUCache(maxsize=512)
 _PARENT_CHILD_CACHE: Dict[int, Tuple[Dict[str, str | None], Dict[str, List[str]]]] = {}
+
+
+def _belongs_to_act(internal_id: str | None, act_id: str | None) -> bool:
+	if not internal_id:
+		return False
+	if not act_id:
+		return True
+	return internal_id.startswith(f"{act_id}_")
 
 
 def _ensure_parent_child_snapshot(db: Session, version: int) -> Tuple[Dict[str, str | None], Dict[str, List[str]]]:
@@ -144,6 +152,7 @@ def _semantic_neighbors(
 	provision_id: str,
 	k: int = SEM_K,
 	vector_param=None,
+	act_id: str | None = None,
 ) -> List[Tuple[str, float]]:
 	if vector_param is None:
 		vector_param = _get_seed_vector(db, provision_id)
@@ -168,7 +177,11 @@ def _semantic_neighbors(
 	results: List[Tuple[str, float]] = []
 	for row in rows:
 		entity_id = row[0]
-		if not entity_id or entity_id in EXCLUDED_INTERNAL_IDS:
+		if not entity_id:
+			continue
+		if act_id and not _belongs_to_act(entity_id, act_id):
+			continue
+		if is_excluded_provision(act_id=act_id, provision_id=entity_id):
 			continue
 		results.append((entity_id, float(row[1])))
 	return results
@@ -178,8 +191,12 @@ def _expand_local_subgraph(
 	db: Session,
 	seeds: Set[str],
 	graph_version: int | None = None,
+	act_id: str | None = None,
 ) -> Tuple[Set[str], List[Tuple[str, str, str]]]:
-	filtered_seeds = {seed for seed in seeds if not is_excluded_provision(provision_id=seed)}
+	filtered_seeds = {
+		seed for seed in seeds
+		if _belongs_to_act(seed, act_id) and not is_excluded_provision(act_id=act_id, provision_id=seed)
+	}
 	if not filtered_seeds:
 		return set(), []
 
@@ -206,7 +223,11 @@ def _expand_local_subgraph(
 		for source_id, target_id in ref_rows:
 			if not target_id:
 				continue
-			if source_id in EXCLUDED_INTERNAL_IDS or target_id in EXCLUDED_INTERNAL_IDS:
+			if not _belongs_to_act(source_id, act_id) or not _belongs_to_act(target_id, act_id):
+				continue
+			if is_excluded_provision(act_id=act_id, provision_id=source_id) or is_excluded_provision(
+				act_id=act_id, provision_id=target_id
+			):
 				continue
 			edges.append((source_id, target_id, "cit"))
 			nodes.add(source_id)
@@ -225,7 +246,9 @@ def _expand_local_subgraph(
 	parent_ids = set()
 	for child_id in list(nodes):
 		parent_id = parent_map.get(child_id)
-		if not parent_id or parent_id in EXCLUDED_INTERNAL_IDS:
+		if not parent_id or not _belongs_to_act(parent_id, act_id):
+			continue
+		if is_excluded_provision(act_id=act_id, provision_id=parent_id):
 			continue
 		edges.append((child_id, parent_id, "hier"))
 		edges.append((parent_id, child_id, "hier"))
@@ -234,12 +257,18 @@ def _expand_local_subgraph(
 
 	for parent_id in parent_ids:
 		for child_id in children_map.get(parent_id, []):
-			if child_id in EXCLUDED_INTERNAL_IDS:
+			if not _belongs_to_act(child_id, act_id):
+				continue
+			if is_excluded_provision(act_id=act_id, provision_id=child_id):
 				continue
 			edges.append((child_id, parent_id, "hier"))
 			edges.append((parent_id, child_id, "hier"))
 			nodes.add(child_id)
-		siblings = [child for child in children_map.get(parent_id, []) if child not in EXCLUDED_INTERNAL_IDS]
+		siblings = [
+			child
+			for child in children_map.get(parent_id, [])
+			if _belongs_to_act(child, act_id) and not is_excluded_provision(act_id=act_id, provision_id=child)
+		]
 		for i in range(len(siblings) - 1):
 			a, b = siblings[i], siblings[i + 1]
 			edges.append((a, b, "hier"))
@@ -261,7 +290,9 @@ def _expand_local_subgraph(
 		for pid, term in term_rows:
 			if not pid or not term:
 				continue
-			if pid in EXCLUDED_INTERNAL_IDS:
+			if not _belongs_to_act(pid, act_id):
+				continue
+			if is_excluded_provision(act_id=act_id, provision_id=pid):
 				continue
 			if pid not in nodes:
 				nodes.add(pid)
@@ -271,6 +302,8 @@ def _expand_local_subgraph(
 			for i in range(len(unique_ids) - 1):
 				for j in range(i + 1, len(unique_ids)):
 					u, v = unique_ids[i], unique_ids[j]
+					if not _belongs_to_act(u, act_id) or not _belongs_to_act(v, act_id):
+						continue
 					edges.append((u, v, "term"))
 					edges.append((v, u, "term"))
 
@@ -279,10 +312,18 @@ def _expand_local_subgraph(
 		vector_param = _get_seed_vector(db, seed_id)
 		if vector_param is None:
 			continue
-		for neighbor_id, _sim in _semantic_neighbors(db, seed_id, SEM_K, vector_param=vector_param):
+		for neighbor_id, _sim in _semantic_neighbors(
+			db,
+			seed_id,
+			SEM_K,
+			vector_param=vector_param,
+			act_id=act_id,
+		):
 			if len(nodes) >= MAX_NODES or len(edges) >= MAX_EDGES:
 				break
-			if neighbor_id in EXCLUDED_INTERNAL_IDS:
+			if not _belongs_to_act(neighbor_id, act_id):
+				continue
+			if is_excluded_provision(act_id=act_id, provision_id=neighbor_id):
 				continue
 			nodes.add(neighbor_id)
 			edges.append((seed_id, neighbor_id, "sem"))
@@ -311,11 +352,22 @@ def _build_weighted_adjacency(nodes: Set[str], typed_edges: List[Tuple[str, str,
 	return adjacency
 
 
-def compute_fingerprint(db: Session, seed_id: str, k: int = TOP_K) -> Tuple[List[Tuple[str, float]], float]:
-	if is_excluded_provision(provision_id=seed_id):
+def compute_fingerprint(
+	db: Session,
+	seed_id: str,
+	k: int = TOP_K,
+	*,
+	act_id: str | None = None,
+) -> Tuple[List[Tuple[str, float]], float]:
+	if is_excluded_provision(act_id=act_id, provision_id=seed_id):
 		return [], 0.0
 	version = get_graph_version(db)
-	node_set, typed_edges = _expand_local_subgraph(db, {seed_id}, graph_version=version)
+	node_set, typed_edges = _expand_local_subgraph(
+		db,
+		{seed_id},
+		graph_version=version,
+		act_id=act_id,
+	)
 	adjacency = _build_weighted_adjacency(node_set, typed_edges)
 	adj_norm = _row_normalize(adjacency)
 	items, captured = _approx_ppr_push(adj_norm, {seed_id: 1.0}, gamma=GAMMA, eps=EPS, top_k=k)
@@ -327,12 +379,23 @@ def compute_fingerprint_multi(
 	db: Session,
 	seed_weights: Dict[str, float],
 	k: int = TOP_K,
+	*,
+	act_id: str | None = None,
 ) -> Tuple[List[Tuple[str, float]], float]:
-	cleaned = {seed: weight for seed, weight in seed_weights.items() if weight > 0 and not is_excluded_provision(provision_id=seed)}
+	cleaned = {
+		seed: weight
+		for seed, weight in seed_weights.items()
+		if weight > 0 and not is_excluded_provision(act_id=act_id, provision_id=seed)
+	}
 	if not cleaned:
 		return [], 0.0
 	version = get_graph_version(db)
-	node_set, typed_edges = _expand_local_subgraph(db, set(cleaned.keys()), graph_version=version)
+	node_set, typed_edges = _expand_local_subgraph(
+		db,
+		set(cleaned.keys()),
+		graph_version=version,
+		act_id=act_id,
+	)
 	adjacency = _build_weighted_adjacency(node_set, typed_edges)
 	adj_norm = _row_normalize(adjacency)
 	total = sum(cleaned.values()) or 1.0
@@ -342,8 +405,13 @@ def compute_fingerprint_multi(
 	return items[:k], captured
 
 
-def get_or_compute_and_cache(db: Session, seed_id: str) -> Tuple[List[Tuple[str, float]], float]:
-	if is_excluded_provision(provision_id=seed_id):
+def get_or_compute_and_cache(
+	db: Session,
+	seed_id: str,
+	*,
+	act_id: str | None = None,
+) -> Tuple[List[Tuple[str, float]], float]:
+	if is_excluded_provision(act_id=act_id, provision_id=seed_id):
 		return [], 0.0
 	current_version = get_graph_version(db)
 	row = db.query(RelatednessFingerprint).filter(
@@ -359,7 +427,7 @@ def get_or_compute_and_cache(db: Session, seed_id: str) -> Tuple[List[Tuple[str,
 		]
 		return neighbors, float(row.captured_mass_provisions or 0.0)
 
-	neighbors, captured = compute_fingerprint(db, seed_id)
+	neighbors, captured = compute_fingerprint(db, seed_id, act_id=act_id)
 	payload = {
 		"neighbors": [{"prov_id": pid, "ppr_mass": float(mass)} for pid, mass in neighbors],
 		"captured_mass_provisions": float(captured),
@@ -385,8 +453,10 @@ def get_cached_fingerprints(
 	db: Session,
 	seed_ids: Set[str],
 	expected_version: int,
+	*,
+	act_id: str | None = None,
 ) -> Tuple[Dict[str, Tuple[List[Tuple[str, float]], float]], Set[str]]:
-	valid_seeds = {seed for seed in seed_ids if not is_excluded_provision(provision_id=seed)}
+	valid_seeds = {seed for seed in seed_ids if not is_excluded_provision(act_id=act_id, provision_id=seed)}
 	if not valid_seeds:
 		return {}, set()
 
@@ -403,7 +473,11 @@ def get_cached_fingerprints(
 		neighbor_items: List[Tuple[str, float]] = []
 		for item in row.neighbors or []:
 			pid = item.get("prov_id")
-			if not pid or pid in EXCLUDED_INTERNAL_IDS:
+			if not pid:
+				continue
+			if act_id and not _belongs_to_act(pid, act_id):
+				continue
+			if is_excluded_provision(act_id=act_id, provision_id=pid):
 				continue
 			neighbor_items.append((pid, float(item.get("ppr_mass", 0.0))))
 		cached[row.source_id] = (neighbor_items, float(row.captured_mass_provisions or 0.0))

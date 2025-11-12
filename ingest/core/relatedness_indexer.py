@@ -39,6 +39,7 @@ class RelatednessIndexerConfig:
 	alpha_citation: float = 0.45
 	alpha_hierarchy: float = 0.20
 	alpha_term: float = 0.20
+	act_id: str = os.getenv("RELATEDNESS_ACT_ID", "ITAA1997")
 
 	# Embedding/runtime controls
 	embedding_model_name: str = os.getenv(
@@ -388,7 +389,7 @@ def build_relatedness_index(
 		leave=False,
 	)
 	for prov_id in pbar_fingerprints:
-		if is_excluded_provision(provision_id=prov_id):
+		if is_excluded_provision(act_id=cfg.act_id, provision_id=prov_id):
 			continue
 		items, captured = _approx_ppr_push(
 			A_norm,
@@ -400,7 +401,7 @@ def build_relatedness_index(
 		filtered = [
 			{"prov_id": neighbor_id, "ppr_mass": float(mass)}
 			for neighbor_id, mass in items
-			if neighbor_id != prov_id and not is_excluded_provision(provision_id=neighbor_id)
+			if neighbor_id != prov_id and not is_excluded_provision(act_id=cfg.act_id, provision_id=neighbor_id)
 		][:FINGERPRINT_TOP_K]
 		fingerprints[prov_id] = (filtered, float(captured))
 	if hasattr(pbar_fingerprints, "close"):

@@ -1,6 +1,6 @@
 // App.tsx
 import React, {useCallback, useEffect, useState} from 'react';
-import type {DetailViewContent, TaxDataObject} from './types';
+import type {ActInfo, DetailViewContent, TaxDataObject} from './types';
 import SideNav from './components/SideNav';
 import MainContent from './components/MainContent';
 import DetailView from './components/DetailView';
@@ -9,10 +9,10 @@ import {api, type UnifiedSearchItem} from './utils/api';
 import SemanticSearchModal from './components/SemanticSearchModal';
 import taxivLogo from './taxiv.png';
 import {ToastProvider} from './components/ToastProvider';
+import ActSelector from './components/ActSelector';
 
-// Hardcode the primary Act ID for now.
-const PRIMARY_ACT_ID = 'ITAA1997';
 const SEMANTIC_SEARCH_STORAGE_KEY = 'taxiv:semantic_search';
+const ACT_STORAGE_KEY = 'taxiv:selected_act';
 
 type SemanticSearchState = {
 	query: string;
@@ -46,6 +46,9 @@ const loadSemanticSearchState = (): SemanticSearchState => {
 };
 
 const App: React.FC = () => {
+    const [acts, setActs] = useState<ActInfo[]>([]);
+    const [selectedActId, setSelectedActId] = useState<string | null>(null);
+    const [isLoadingActs, setIsLoadingActs] = useState<boolean>(true);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [mainContentData, setMainContentData] = useState<TaxDataObject | null>(null);
     // State for breadcrumbs (restored functionality)
@@ -56,16 +59,51 @@ const App: React.FC = () => {
     const [isSemanticSearchOpen, setSemanticSearchOpen] = useState(false);
     const [semanticSearchState, setSemanticSearchState] = useState<SemanticSearchState>(() => loadSemanticSearchState());
 
+    useEffect(() => {
+        const loadActs = async () => {
+            try {
+                const data = await api.getActs();
+                setActs(data);
+                let nextAct: string | null = null;
+                if (typeof window !== 'undefined') {
+                    const stored = window.localStorage.getItem(ACT_STORAGE_KEY);
+                    if (stored && data.some(act => act.id === stored)) {
+                        nextAct = stored;
+                    }
+                }
+                if (!nextAct) {
+                    const defaultAct = data.find(act => act.is_default) ?? data[0];
+                    nextAct = defaultAct?.id ?? null;
+                }
+                setSelectedActId(nextAct);
+            } catch (err) {
+                console.error('Failed to load act metadata:', err);
+                setError('Failed to load available acts. Ensure the backend is reachable.');
+            } finally {
+                setIsLoadingActs(false);
+            }
+        };
+        loadActs();
+    }, []);
+
+    useEffect(() => {
+        if (selectedActId && typeof window !== 'undefined') {
+            window.localStorage.setItem(ACT_STORAGE_KEY, selectedActId);
+        }
+    }, [selectedActId]);
+
+    useEffect(() => {
+        setSemanticSearchState({query: '', results: []});
+    }, [selectedActId]);
+
     // Function to fetch details for the main view
     const fetchMainContent = useCallback(async (internalId: string) => {
-        if (internalId === selectedNodeId) return;
-
         setIsLoading(true);
         setError(null);
         setSelectedNodeId(internalId); // Update ID immediately for responsiveness
 
 		try {
-			const data = await api.getProvisionDetail(internalId);
+			const data = await api.getProvisionDetail(internalId, {includeBreadcrumbs: true});
 			setMainContentData(data);
 			setBreadcrumbs(data.breadcrumbs ?? []);
         } catch (err) {
@@ -75,7 +113,7 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedNodeId]);
+    }, []);
 
     // Function to fetch details for the side panel (DetailView) by Internal ID
     const fetchDetailContent = useCallback(async (internalId: string, type: 'reference' | 'term', termText?: string) => {
@@ -102,11 +140,16 @@ const App: React.FC = () => {
 
     // Function to fetch details by Ref ID (for InteractiveContent references)
     const fetchDetailContentByRefId = useCallback(async (refId: string) => {
-        // Use the context of the currently viewed Act for the lookup, fallback to primary
-        const actId = mainContentData?.act_id || PRIMARY_ACT_ID;
+        const actId = mainContentData?.act_id || selectedActId;
+        if (!actId) {
+            setDetailViewContent({
+                type: 'error',
+                data: 'No act context is available to resolve this reference.'
+            });
+            return;
+        }
 
         try {
-            // Requires the api.getProvisionByRefId endpoint
             const data = await api.getProvisionByRefId(refId, actId);
             setDetailViewContent({type: 'reference', data});
         } catch (err) {
@@ -116,31 +159,35 @@ const App: React.FC = () => {
                 data: `Reference could not be resolved: "${refId}". It might be external (another Act), or the lookup API failed. Error: ${(err as Error).message}`
             });
         }
-    }, [mainContentData]);
+    }, [mainContentData, selectedActId]);
 
     // Initial Load
     useEffect(() => {
         const initializeView = async () => {
-            if (selectedNodeId) return;
+            if (!selectedActId) return;
 
             setIsLoading(true);
+            setError(null);
+            setSelectedNodeId(null);
+            setMainContentData(null);
+            setBreadcrumbs([]);
             try {
-                const topLevelNodes = await api.getHierarchy(PRIMARY_ACT_ID);
+                const topLevelNodes = await api.getHierarchy(selectedActId);
                 if (topLevelNodes.length > 0) {
                     const initialNode = topLevelNodes[0];
                     fetchMainContent(initialNode.internal_id);
                 } else {
-                    setError("No data found for Act: " + PRIMARY_ACT_ID + ".");
-                    setIsLoading(false);
+                    setError(`No data found for Act: ${selectedActId}.`);
                 }
             } catch (err) {
                 console.error("Error initializing view:", err);
                 setError("Failed to connect to the backend API. Ensure containers are running and required endpoints (see utils/api.ts) are implemented.");
+            } finally {
                 setIsLoading(false);
             }
         };
         initializeView();
-    }, [fetchMainContent, selectedNodeId]);
+    }, [selectedActId, fetchMainContent]);
 
 
     const handleSelectNode = useCallback((nodeId: string) => {
@@ -166,12 +213,15 @@ const App: React.FC = () => {
         setSemanticSearchState(nextState);
         if (typeof window !== 'undefined') {
             try {
-                window.localStorage.setItem(SEMANTIC_SEARCH_STORAGE_KEY, JSON.stringify(nextState));
+                window.localStorage.setItem(
+                    SEMANTIC_SEARCH_STORAGE_KEY,
+                    JSON.stringify({...nextState, act_id: selectedActId})
+                );
             } catch (err) {
                 console.warn('Failed to persist semantic search state:', err);
             }
         }
-    }, []);
+    }, [selectedActId]);
 
     const handleOpenSemanticSearch = useCallback(() => {
         setSemanticSearchOpen(true);
@@ -181,6 +231,22 @@ const App: React.FC = () => {
         setSemanticSearchOpen(false);
     }, []);
 
+
+    if (isLoadingActs) {
+        return (
+            <div className="flex h-screen items-center justify-center bg-gray-900 text-gray-200">
+                <p className="text-lg">Loading available acts…</p>
+            </div>
+        );
+    }
+
+    if (!selectedActId) {
+        return (
+            <div className="flex h-screen items-center justify-center bg-gray-900 text-gray-200">
+                <p className="text-lg">No acts are available. Ingest an act and reload the page.</p>
+            </div>
+        );
+    }
 
     // Render Global Error state
     if (error && !isLoading && (!mainContentData || !selectedNodeId)) {
@@ -203,7 +269,10 @@ const App: React.FC = () => {
             {/* Side Navigation Panel */}
             <div className="w-full md:w-1/4 h-full flex flex-col border-r border-gray-700 bg-gray-800">
                 <header className="p-4 border-b border-gray-700 flex items-center justify-between shrink-0">
-                    <img src={taxivLogo} alt="Taxiv" className="h-8 w-auto" />
+                    <div className="flex items-center gap-4">
+                        <img src={taxivLogo} alt="Taxiv" className="h-8 w-auto" />
+                        <ActSelector acts={acts} value={selectedActId} onChange={next => setSelectedActId(next)} />
+                    </div>
                     <button
                         type="button"
                         onClick={handleOpenSemanticSearch}
@@ -214,7 +283,7 @@ const App: React.FC = () => {
                     </button>
                 </header>
                 <SideNav
-                    actId={PRIMARY_ACT_ID}
+                    actId={selectedActId}
                     onSelectNode={handleSelectNode}
                     selectedNodeId={selectedNodeId}
                 />
@@ -246,6 +315,7 @@ const App: React.FC = () => {
             </div>
             <SemanticSearchModal
                 isOpen={isSemanticSearchOpen}
+                actId={selectedActId}
                 onClose={handleCloseSemanticSearch}
                 onSelectProvision={handleSelectNode}
                 state={semanticSearchState}

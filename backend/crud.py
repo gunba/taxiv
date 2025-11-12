@@ -5,14 +5,17 @@ import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Sequence
 
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy_utils import Ltree
 
 from backend.models import legislation as models
+from backend.models.semantic import Document, DocumentChunk
 from backend.schemas import (
 	BreadcrumbItem,
 	ChildProvisionSummary,
+	DocumentSearchResponse,
+	DocumentSummary,
 	DefinedTermUsageDetail,
 	DefinitionWithReferences,
 	ProvisionDetailOptions,
@@ -435,3 +438,56 @@ def get_ordered_internal_ids(db: Session, internal_ids: Sequence[str]) -> List[s
 		.all()
 	)
 	return [row.internal_id for row in rows]
+
+
+def _document_snippet(content: str | None, limit: int = 240) -> str:
+	text = (content or "").strip()
+	if not text:
+		return ""
+	text = " ".join(text.split())
+	if len(text) <= limit:
+		return text
+	return text[:limit].rstrip(",.;: ") + "…"
+
+
+def search_documents(
+	db: Session,
+	query: str,
+	limit: int,
+	offset: int,
+) -> DocumentSearchResponse:
+	normalized = (query or "").strip()
+	base = (
+		db.query(Document, DocumentChunk)
+		.join(DocumentChunk, DocumentChunk.document_id == Document.id)
+		.filter(DocumentChunk.chunk_index == 0)
+	)
+	if normalized:
+		pattern = f"%{normalized}%"
+		base = base.filter(
+			or_(
+				Document.title.ilike(pattern),
+				DocumentChunk.text.ilike(pattern),
+			)
+		)
+	total = base.count()
+	rows = (
+		base.order_by(Document.title)
+		.offset(max(offset, 0))
+		.limit(max(limit, 1))
+		.all()
+	)
+	results: List[DocumentSummary] = []
+	for document, chunk in rows:
+		results.append(DocumentSummary(
+			id=document.id,
+			title=document.title,
+			doc_type=document.doc_type,
+			snippet=_document_snippet(chunk.text),
+		))
+	return DocumentSearchResponse(
+		results=results,
+		offset=offset,
+		limit=limit,
+		total=total,
+	)
