@@ -42,3 +42,4 @@ ingest/media/**/*
 /ingest/output/intermediate/
 /ingest/output/final/
 *.db
+ingest/data/**/*

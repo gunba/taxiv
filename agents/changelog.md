@@ -49,3 +49,5 @@
 2025-02-14 - Streamed oversized provision markdown via IntersectionObserver-driven chunking in `InteractiveContent` and added lazy render regression coverage.
 2025-11-11 - Added MCP capabilities endpoint, paginated search, lean provision detail metadata, and batch provision hydration.
 2025-11-12 - Fixed MCP import usage and normalized backend detail helpers for lean responses with caching metadata.
+2025-02-14 - Added the ITAA1936 ingestion pipeline with DOCX conversion, shared docx phases, and LLM-free parsing stabilizers.
+2025-11-13 - Added LibreOffice to the backend image, cached ITAA1936 RTF conversions via manifests, normalized style handling for Section 6 definitions, and documented the ingestion nuances.

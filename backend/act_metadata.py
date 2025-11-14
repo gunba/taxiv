@@ -46,20 +46,21 @@ class MetadataBundle:
     datasets: Dict[str, DatasetMetadata]
 
 
-def _load_raw_config() -> dict:
-    config_path = os.environ.get(CONFIG_ENV_VAR)
-    if config_path:
-        resolved = Path(config_path).expanduser().resolve()
-    else:
-        resolved = DEFAULT_CONFIG_PATH
-    if not resolved.exists():
-        raise FileNotFoundError(f"Dataset config not found at {resolved}")
-    with resolved.open("r", encoding="utf-8") as handle:
+def _resolve_config_path() -> Path:
+    override = os.environ.get(CONFIG_ENV_VAR)
+    if override:
+        return Path(override).expanduser().resolve()
+    return DEFAULT_CONFIG_PATH
+
+
+def _load_raw_config(config_path: Path) -> dict:
+    if not config_path.exists():
+        raise FileNotFoundError(f"Dataset config not found at {config_path}")
+    with config_path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
-def _parse_bundle() -> MetadataBundle:
-    raw = _load_raw_config()
+def _parse_bundle(raw: dict) -> MetadataBundle:
     default_act = raw.get("default_act")
     acts_map: Dict[str, ActMetadata] = {}
     datasets_map: Dict[str, DatasetMetadata] = {}
@@ -94,9 +95,21 @@ def _parse_bundle() -> MetadataBundle:
     return MetadataBundle(default_act_id=default_act or "", acts=acts_map, datasets=datasets_map)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def _get_metadata_bundle_cached(config_path_str: str, version_token: float) -> MetadataBundle:
+    config_path = Path(config_path_str)
+    raw = _load_raw_config(config_path)
+    return _parse_bundle(raw)
+
+
 def get_metadata_bundle() -> MetadataBundle:
-    return _parse_bundle()
+    config_path = _resolve_config_path()
+    try:
+        version_token = config_path.stat().st_mtime
+    except FileNotFoundError:
+        # Let _load_raw_config raise the detailed error shortly after.
+        version_token = 0.0
+    return _get_metadata_bundle_cached(str(config_path), version_token)
 
 
 def get_default_act_id() -> str:

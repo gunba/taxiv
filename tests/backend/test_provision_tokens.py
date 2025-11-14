@@ -33,7 +33,7 @@ def test_parse_returns_none_for_unrecognized_pattern():
 
 
 def test_parse_allows_explicit_act_prefix():
-        token = parse_flexible_token("DEMOACT: s 10-1 custom", default_act="ITAA1997")
+        token = parse_flexible_token("ITAA1936: s 6 custom", default_act="ITAA1997")
         assert token is not None
-        assert token.act == "DEMOACT"
-        assert token.section == "10-1"
+        assert token.act == "ITAA1936"
+        assert token.section == "6"

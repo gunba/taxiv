@@ -11,19 +11,19 @@ from ingest.pipelines.itaa1997 import parser
 
 @pytest.fixture
 def definition_state_cleanup():
-	original_definitions = copy.deepcopy(parser.DEFINITIONS_995_1)
+	original_definitions = copy.deepcopy(parser.DEFINITION_REGISTRY)
 	original_variant_map = copy.deepcopy(parser.DEFINITION_VARIANT_MAP)
 	original_greedy_regex = parser.DEFINITION_GREEDY_REGEX
 	original_marker_regex = parser.DEFINITION_MARKER_REGEX
 
 	try:
-		parser.DEFINITIONS_995_1.clear()
+		parser.DEFINITION_REGISTRY.clear()
 		parser.DEFINITION_VARIANT_MAP.clear()
 		parser.DEFINITION_GREEDY_REGEX = None
 		yield
 	finally:
-		parser.DEFINITIONS_995_1.clear()
-		parser.DEFINITIONS_995_1.update(original_definitions)
+		parser.DEFINITION_REGISTRY.clear()
+		parser.DEFINITION_REGISTRY.update(original_definitions)
 		parser.DEFINITION_VARIANT_MAP.clear()
 		parser.DEFINITION_VARIANT_MAP.update(original_variant_map)
 		parser.DEFINITION_GREEDY_REGEX = original_greedy_regex
@@ -156,6 +156,23 @@ def test_process_definition_content_preserves_list_markdown(monkeypatch):
 		'Outro text\n\n'
 	)
 	assert definition_md == expected
+
+
+def test_use_config_temporary_override():
+	original_act = parser.config.ACT_ID
+	custom = parser.Config()
+	custom.ACT_ID = "CUSTOM"
+	with parser.use_config(custom):
+		assert parser.config.ACT_ID == "CUSTOM"
+	assert parser.config.ACT_ID == original_act
+
+
+def test_is_definition_section_heading_respects_config(monkeypatch):
+	custom = parser.Config()
+	custom.DEFINITION_SECTION_PREFIXES = ["Custom Anchor"]
+	with parser.use_config(custom):
+		assert parser.is_definition_section_heading(custom.DEFINITION_SECTION_LEVEL, "Custom Anchor - items")
+		assert not parser.is_definition_section_heading(custom.DEFINITION_SECTION_LEVEL, "Other")
 
 
 def _prime_media_context(tmp_path, monkeypatch):
@@ -341,9 +358,9 @@ def test_get_image_alt_text_falls_back_to_description_when_not_renderable(tmp_pa
 def _configure_definitions(terms):
 	parser.DEFINITION_VARIANT_MAP.clear()
 	parser.DEFINITION_GREEDY_REGEX = None
-	parser.DEFINITIONS_995_1.clear()
+	parser.DEFINITION_REGISTRY.clear()
 	for term in terms:
-		parser.DEFINITIONS_995_1[term] = {}
+		parser.DEFINITION_REGISTRY[term] = {}
 	parser.build_definition_greedy_matcher()
 
 

@@ -10,7 +10,11 @@ RUN apt-get update \
 		imagemagick \
 		libwmf-bin \
 		librsvg2-bin \
+		libreoffice \
 		libreoffice-draw \
+		libreoffice-writer \
+		uno-libs-private \
+		ure \
 		ghostscript \
 		fonts-dejavu-core \
 	&& rm -rf /var/lib/apt/lists/*

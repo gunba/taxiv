@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Dict, Optional, Pattern, List, Tuple, Set
@@ -26,6 +27,18 @@ from ingest.core import llm_extraction
 # Import pipeline-specific configuration (using relative import)
 # We import the config values directly rather than the module object for clarity
 config = Config()
+
+
+@contextmanager
+def use_config(temp_config):
+	"""Temporarily override the parser configuration."""
+	global config
+	original = config
+	config = temp_config
+	try:
+		yield
+	finally:
+		config = original
 
 # =============================================================================
 # Media Handling Helpers
@@ -193,11 +206,29 @@ except ImportError:
 # =============================================================================
 
 # This state is specific to the execution of this pipeline run.
-DEFINITIONS_995_1: Dict[str, Dict] = {}
+DEFINITION_REGISTRY: Dict[str, Dict] = {}
 DEFINITION_MARKER_REGEX: Optional[Pattern] = None
 DEFINITION_VARIANT_MAP: Dict[str, str] = {}
 DEFINITION_GREEDY_REGEX: Optional[Pattern] = None
 MARKDOWN_LINK_PATTERN = re.compile(r"\[[^\]]+\]\([^\)]+\)")
+
+
+def normalize_style_name(style_name: Optional[str]) -> Optional[str]:
+	if not style_name:
+		return None
+	base, *_ = style_name.split(",", 1)
+	return base.strip() or style_name
+
+
+def is_definition_section_heading(level: int, text: str) -> bool:
+	target_level = getattr(config, "DEFINITION_SECTION_LEVEL", 5)
+	if level != target_level:
+		return False
+	normalized = (text or "").strip()
+	for prefix in getattr(config, "DEFINITION_SECTION_PREFIXES", ["995-1", "995 1"]):
+		if normalized.lower().startswith(prefix.lower()):
+			return True
+	return False
 
 # =============================================================================
 # List Handling Helpers
@@ -342,9 +373,19 @@ def format_paragraph_markdown(paragraph, text: str, list_tracker: ListStateTrack
 
 def should_ignore_style(style_name):
 	"""Checks if a style should be ignored based on config."""
-	if style_name in config.IGNORE_STYLES: return True
-	for pattern in config.IGNORE_STYLE_PATTERNS:
-		if style_name.startswith(pattern): return True
+	if not style_name:
+		return False
+	candidates = []
+	normalized = normalize_style_name(style_name)
+	candidates.append(style_name)
+	if normalized and normalized not in candidates:
+		candidates.append(normalized)
+	for candidate in candidates:
+		if candidate in config.IGNORE_STYLES:
+			return True
+		for pattern in config.IGNORE_STYLE_PATTERNS:
+			if candidate.startswith(pattern):
+				return True
 	return False
 
 
@@ -371,13 +412,13 @@ def compile_definition_regex():
 	global DEFINITION_MARKER_REGEX
 	print("\nCompiling precise definition pattern for Pass 2...")
 
-	if not DEFINITIONS_995_1:
+	if not DEFINITION_REGISTRY:
 		print("Warning: No definitions found. Proceeding with fallback pattern.")
 		DEFINITION_VARIANT_MAP.clear()
 		DEFINITION_GREEDY_REGEX = None
 		return
 
-	sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
+	sorted_terms = sorted(DEFINITION_REGISTRY.keys(), key=len, reverse=True)
 	escaped_terms = [re.escape(term) for term in sorted_terms]
 	alternation_group = "|".join(escaped_terms)
 
@@ -458,7 +499,7 @@ def build_definition_greedy_matcher(sorted_terms: Optional[List[str]] = None) ->
 	global DEFINITION_VARIANT_MAP, DEFINITION_GREEDY_REGEX
 
 	if sorted_terms is None:
-		sorted_terms = sorted(DEFINITIONS_995_1.keys(), key=len, reverse=True)
+		sorted_terms = sorted(DEFINITION_REGISTRY.keys(), key=len, reverse=True)
 
 	DEFINITION_VARIANT_MAP = {}
 	pattern_parts: List[str] = []
@@ -619,7 +660,7 @@ def process_table(table) -> Tuple[str, Set[str]]:
 
 
 # =============================================================================
-# Definition Extraction Logic (Specific to Section 995-1 formatting)
+# Definition Extraction Logic (Act-specific formatting)
 # =============================================================================
 
 def identify_definition_start(paragraph):
@@ -823,7 +864,13 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 		in_definitions_section = False
 		current_definition_term = None
 		definition_list_trackers: Dict[str, ListStateTracker] = {}
+		definition_content_seen = False
 		current_list_tracker: Optional[ListStateTracker] = None
+		definition_exit_requires_content = getattr(
+			config,
+			"DEFINITION_SECTION_EXIT_REQUIRES_CONTENT",
+			False,
+		)
 
 		# Progress bar setup
 		try:
@@ -851,11 +898,30 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 			# Extract basic info from paragraphs
 			if is_paragraph:
 				if block.style and hasattr(block.style, 'name'):
-					style_name = block.style.name
+					style_name = normalize_style_name(block.style.name)
 					if should_ignore_style(style_name):
 						continue
 				# Clean text and normalize whitespace
 				text = block.text.strip().replace('\u00A0', ' ')
+			else:
+				style_name = None
+
+			exit_styles = getattr(config, "DEFINITION_SECTION_EXIT_STYLES", [])
+			if (
+				pass_num == 1
+				and in_definitions_section
+				and exit_styles
+				and style_name
+				and style_name in exit_styles
+				and (not definition_exit_requires_content or definition_content_seen)
+			):
+				in_definitions_section = False
+				current_definition_term = None
+				if pass_num == 1:
+					progress_bar_doc.set_description(
+						f"  Parsing {os.path.basename(filepath)} (Pass {pass_num})",
+						refresh=True
+					)
 
 			# 1. Handle Headings (Hierarchy Management)
 			if is_paragraph and style_name in config.STYLE_MAP:
@@ -903,13 +969,15 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 					current_section = True
 
 				# --- Definition section tracking (Pass 1 specific logic) ---
-				# Check if entering or exiting the definitions section (Section 995-1)
-				if level == 5 and (text.startswith("995-1") or text.startswith("995 1")):
+				# Check if entering or exiting the definitions section
+				if is_definition_section_heading(level, text):
 					in_definitions_section = True
 					current_definition_term = None
+					definition_content_seen = False
 					if pass_num == 1:
-						progress_bar_doc.set_description(f"  Extracting Definitions (995-1)...", refresh=True)
-				elif level < 5 and in_definitions_section:
+						label = getattr(config, "DEFINITION_PROGRESS_LABEL", "Definitions")
+						progress_bar_doc.set_description(f"  Extracting Definitions ({label})...", refresh=True)
+				elif level < getattr(config, "DEFINITION_SECTION_LEVEL", 5) and in_definitions_section:
 					# If a higher-level heading appears, we have left the definitions section
 					in_definitions_section = False
 					current_definition_term = None
@@ -932,34 +1000,35 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 					if new_term:
 						# Start a new definition
 						current_definition_term = new_term
-						if current_definition_term not in DEFINITIONS_995_1:
-							DEFINITIONS_995_1[current_definition_term] = {
+						definition_content_seen = True
+						if current_definition_term not in DEFINITION_REGISTRY:
+							DEFINITION_REGISTRY[current_definition_term] = {
 								"content_md": "", "references": set(), "defined_terms_used": set()
 							}
 						definition_tracker = definition_list_trackers.get(current_definition_term)
 						if definition_tracker is None:
 							definition_tracker = ListStateTracker()
 							definition_list_trackers[current_definition_term] = definition_tracker
-						existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
+						existing_content = DEFINITION_REGISTRY[current_definition_term]["content_md"]
 						# Process the starting line of the definition
 						content, terms = clean_definition_start(
 							block, new_term, definition_tracker, existing_content
 						)
-						DEFINITIONS_995_1[current_definition_term]["content_md"] += content
-						DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
+						DEFINITION_REGISTRY[current_definition_term]["content_md"] += content
+						DEFINITION_REGISTRY[current_definition_term]["defined_terms_used"].update(terms)
 
 					elif current_definition_term:
 						# Continue processing subsequent blocks of the current definition
 						definition_tracker = definition_list_trackers.setdefault(
 							current_definition_term, ListStateTracker()
 						)
-						existing_content = DEFINITIONS_995_1[current_definition_term]["content_md"]
+						existing_content = DEFINITION_REGISTRY[current_definition_term]["content_md"]
 						content, terms = process_definition_content(
 							block, definition_tracker, existing_content
 						)
-						if current_definition_term in DEFINITIONS_995_1:
-							DEFINITIONS_995_1[current_definition_term]["content_md"] += content
-							DEFINITIONS_995_1[current_definition_term]["defined_terms_used"].update(terms)
+						if current_definition_term in DEFINITION_REGISTRY:
+							DEFINITION_REGISTRY[current_definition_term]["content_md"] += content
+							DEFINITION_REGISTRY[current_definition_term]["defined_terms_used"].update(terms)
 
 			# --- Standard Content Processing (Pass 2) ---
 			if pass_num == 2 and current_section:

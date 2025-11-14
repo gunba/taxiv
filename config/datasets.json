@@ -20,19 +20,21 @@
       }
     },
     {
-      "id": "DEMOACT",
-      "title": "Demonstration Tax Act",
-      "description": "Placeholder dataset used for regression tests and adapter bring-up.",
+      "id": "ITAA1936",
+      "title": "Income Tax Assessment Act 1936",
+      "description": "Legacy income tax legislation to validate multi-act ingestion.",
       "exclusions": {
-        "ref_ids": []
+        "ref_ids": [
+          "ITAA1936:Section:6"
+        ]
       },
       "tokenizer": {
         "supports_section_gaps": true,
-        "explicit_prefixes": ["DEMOACT"]
+        "explicit_prefixes": ["ITA", "ITAA1936"]
       },
       "ingestion": {
-        "pipeline": "",
-        "definition_anchor": null
+        "pipeline": "ingest.pipelines.itaa1936.run_pipeline",
+        "definition_anchor": "ITAA1936:Section:6"
       }
     }
   ],

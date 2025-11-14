@@ -8,6 +8,7 @@ class Config:
 	# =============================================================================
 
 	ACT_ID = "ITAA1997"
+	ACT_TITLE = "Income Tax Assessment Act 1997"
 
 	# Define paths based on the standardized structure
 	try:
@@ -33,10 +34,7 @@ class Config:
 
 	# Input file pattern
 	FILE_PATTERN = "C2025C00405VOL{}.docx"
-
-	# Output file patterns
-	OUTPUT_FILE_PATTERN = f"{ACT_ID}_VOL{{}}_gemini_concurrent.json"
-	DEFINITIONS_FILE_NAME = f"definitions_995_1_gemini_concurrent.json"
+	INTERMEDIATE_FILE_PATTERN = f"{ACT_ID}_VOL{{}}_intermediate.json"
 
 	# Volume range to process
 	START_VOLUME = 1
@@ -44,6 +42,11 @@ class Config:
 
 	# Definitions volume
 	DEFINITIONS_VOLUME = 10
+	DEFINITION_SECTION_LEVEL = 5
+	DEFINITION_SECTION_PREFIXES = ["995-1", "995 1"]
+	DEFINITION_PROGRESS_LABEL = "Section 995-1"
+	DEFINITION_ANCHOR_REF_ID = f"{ACT_ID}:Section:995-1"
+	DEFINITIONS_INTERMEDIATE_FILENAME = "definitions_995_1_intermediate.json"
 
 	# Concurrency
 	MAX_WORKERS = 15
@@ -55,12 +58,6 @@ class Config:
 
 	IGNORE_STYLES = ['Header', 'Footer', 'ShortT', 'LongT', 'CompiledActNo']
 	IGNORE_STYLE_PATTERNS = ['toc ', 'TofSects(']
-
-	FORMATTING_STYLES = {
-		'SubsectionHead': 'emphasis',
-		'note(': 'note',
-		'Note(': 'note',
-	}
 
 	# Regex patterns
 	TITLE_PATTERNS = {
