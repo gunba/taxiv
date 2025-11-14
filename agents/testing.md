@@ -37,3 +37,17 @@ Every change must be testable and ship with the relevant coverage.
   the mitigation you attempted (e.g., missing system dependency, sandbox restriction).
 * When adding new behavior, extend or author tests in the same change so the regression surface grows alongside the
   feature.
+
+## Playwright MCP UI Smoke Tests
+
+* Use the Playwright MCP tools when you need an end-to-end sanity check of the running UI (especially around semantic search or act selection) instead of relying solely on unit tests.
+* Typical workflow:
+	* Ensure the frontend (Vite) and backend (FastAPI) are running and reachable on the host (in the current setup, `http://localhost:3000` serves the UI with the backend proxy).
+	* From the MCP-enabled environment, use the `playwright` tools to:
+		1. Navigate to the Taxiv UI.
+		2. Select an Act in the header selector (e.g., ITAA1936).
+		3. Open the semantic search modal, run a query (e.g., "medicare levy"), and confirm that:
+			* The modal header reflects the selected scope (current Act vs. All Acts).
+			* Result rows show the mapped Act label (e.g., “Income Tax Assessment Act 1936”) and URS scores.
+			* Clicking a row loads the provision into the main view without errors.
+* Prefer Playwright MCP for quick, behavior-centric smoke tests after wiring new UI flows (like multi-act semantic search), and still back changes with Vitest/Pytest at the unit/integration level.

@@ -14,8 +14,8 @@ const ActSelector: React.FC<ActSelectorProps> = ({acts, value, onChange}) => {
 
 	return (
 		<label className="flex items-center gap-2 text-sm text-gray-300">
-			<span>Act</span>
 			<select
+				aria-label="Act"
 				className="bg-gray-800 border border-gray-600 rounded-md px-3 py-1 text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
 				value={value ?? ''}
 				onChange={event => onChange(event.target.value)}

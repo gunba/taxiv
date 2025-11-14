@@ -1,3 +1,4 @@
+2025-11-14 - Extended the semantic-search modal for current-Act and all-Acts scopes, mapped act_ids to human-readable titles, and documented Playwright MCP UI smoke tests for multi-act verification.
 2025-11-12 - Captured a multi-act readiness audit (docs/multi-act-readiness.md) covering ITAA-specific coupling across ingestion, backend search, and the frontend act picker gap.
 2025-11-12 - Generalized the stack for multi-act datasets: added config/datasets.json, act-aware search/relatedness APIs, frontend act selector, a base ingestion pipeline, and a document ingestion path with `/api/documents/search`.
 2025-11-12 - Updated AGENTS/testing guidance to mandate running the relevant test suites (and documenting commands) after every change, referencing the new host-side workflows.

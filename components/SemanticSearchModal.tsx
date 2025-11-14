@@ -1,12 +1,15 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {api, unifiedSearch, type UnifiedSearchItem} from '../utils/api';
 import {CloseIcon, ClipboardIcon, SearchIcon} from './Icons';
 import {copyToClipboard} from '../utils/clipboard';
+import type {ActInfo} from '../types';
 
 interface SemanticSearchModalProps {
 	isOpen: boolean;
-	actId: string;
+	actId: string | null;
+	acts: ActInfo[];
 	onClose: () => void;
+	onSelectAct: (actId: string) => void;
 	onSelectProvision: (internalId: string) => void;
 	state: {
 		query: string;
@@ -18,7 +21,9 @@ interface SemanticSearchModalProps {
 const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 	isOpen,
 	actId,
+	acts,
 	onClose,
+	onSelectAct,
 	onSelectProvision,
 	state,
 	onStateChange,
@@ -31,9 +36,22 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 	const [copyingJsonId, setCopyingJsonId] = useState<string | null>(null);
 	const [copiedMarkdownId, setCopiedMarkdownId] = useState<string | null>(null);
 	const [copyingMarkdownId, setCopyingMarkdownId] = useState<string | null>(null);
+	const [scope, setScope] = useState<string>(() => actId ?? 'all');
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const jsonCopyTimeoutRef = useRef<number | null>(null);
 	const markdownCopyTimeoutRef = useRef<number | null>(null);
+
+	const actLabelById = useMemo(() => {
+		const map: Record<string, string> = {};
+		for (const act of acts) {
+			map[act.id] = act.title;
+		}
+		return map;
+	}, [acts]);
+
+	const headerLabel = scope === 'all'
+		? 'all Acts'
+		: actLabelById[scope] ?? scope;
 
 	useEffect(() => {
 		if (isOpen) {
@@ -85,7 +103,8 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 		setIsLoading(true);
 		setError(null);
 		try {
-			const response = await unifiedSearch(trimmed, 25, actId);
+			const actParam = scope === 'all' ? '*' : scope;
+			const response = await unifiedSearch(trimmed, 25, actParam);
 			const newResults = response.results ?? [];
 			setResults(newResults);
 			onStateChange({query, results: newResults});
@@ -97,7 +116,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [actId, onStateChange, query]);
+	}, [actId, onStateChange, query, scope]);
 
 	const handleSubmit = useCallback(
 		(event: React.FormEvent) => {
@@ -146,9 +165,12 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 	}, []);
 
 	const handleResultSelect = useCallback((result: UnifiedSearchItem) => {
+		if (result.act_id) {
+			onSelectAct(result.act_id);
+		}
 		onSelectProvision(result.id);
 		onClose();
-	}, [onClose, onSelectProvision]);
+	}, [onClose, onSelectAct, onSelectProvision]);
 
 	if (!isOpen) {
 		return null;
@@ -165,7 +187,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 			<header className="flex items-center justify-between border-b border-gray-700 px-6 py-4">
 					<div>
 						<p className="text-sm uppercase tracking-wide text-gray-400">Semantic search</p>
-						<h2 className="text-xl font-semibold text-white">Explore {actId}</h2>
+						<h2 className="text-xl font-semibold text-white">Explore {headerLabel}</h2>
 					</div>
 					<button
 						type="button"
@@ -178,6 +200,27 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 				</header>
 
 				<form onSubmit={handleSubmit} className="px-6 py-4 border-b border-gray-800 space-y-3">
+					<div className="flex items-center justify-between gap-3">
+						<label className="flex items-center gap-2 text-xs text-gray-300">
+							<span>Scope</span>
+							<select
+								aria-label="Semantic search scope"
+								className="bg-gray-800 border border-gray-600 rounded-md px-2 py-1 text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+								value={scope}
+								onChange={event => {
+									const value = event.target.value;
+									setScope(value);
+								}}
+							>
+								<option value="all">All Acts</option>
+								{acts.map(act => (
+									<option key={act.id} value={act.id}>
+										{act.title}
+									</option>
+								))}
+							</select>
+						</label>
+					</div>
 					<label className="text-sm text-gray-300 font-medium" htmlFor="semantic-search-input">
 						Query
 					</label>
@@ -227,6 +270,7 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 							<p className="text-lg font-semibold text-white">{result.title || 'Untitled provision'}</p>
 							<p className="text-sm text-gray-300 mt-1">{result.ref_id}</p>
 							<p className="text-xs text-gray-400 mt-1">
+								{actLabelById[result.act_id] ? `${actLabelById[result.act_id]} • ` : ''}
 								Type: {result.type} • URS {result.score_urs}
 							</p>
 						</div>

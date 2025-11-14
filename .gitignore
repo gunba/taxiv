@@ -43,3 +43,5 @@ ingest/media/**/*
 /ingest/output/final/
 *.db
 ingest/data/**/*
+.serena/project.yml
+*.pyc

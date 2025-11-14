@@ -9,7 +9,7 @@ from cachetools import TTLCache
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from backend.act_metadata import ensure_valid_act_id, get_default_act_id
+from backend.act_metadata import ensure_valid_act_id, get_default_act_id, list_acts as list_metadata_acts
 from backend.models.legislation import (
         BaselinePagerank,
         Provision,
@@ -330,12 +330,12 @@ def _score_to_urs(scores: List[float]) -> List[int]:
         return [int(round(scaled.get(i, 0.0))) for i in range(len(scores))]
 
 
-def unified_search(
+def _unified_search_single_act(
         db: Session,
         query: str,
-        k: int = 10,
-        offset: int = 0,
-        act_id: Optional[str] = None,
+        k: int,
+        offset: int,
+        act_id: Optional[str],
 ) -> dict:
         orig = query or ""
         norm = _normalize_query(orig)
@@ -558,7 +558,6 @@ def unified_search(
         for i, (prov_id, _raw, graph_raw, lex_comp) in enumerate(final_scores):
                 graph_part = (graph_scaled_map.get(i, 0.0)) / 100.0  # 0..1
                 score = W_GRAPH * graph_part + W_LEX * (lex_comp)
-                typ = meta[prov_id].type or ""
                 composite.append((prov_id, score))
 
         # Rank and map to URS 0..100 relative to set
@@ -607,3 +606,129 @@ def unified_search(
         }
         _SEARCH_CACHE[cache_key] = payload
         return payload
+
+
+def unified_search(
+        db: Session,
+        query: str,
+        k: int = 10,
+        offset: int = 0,
+        act_id: Optional[str] = None,
+) -> dict:
+        """
+        Unified semantic search over one or many Acts.
+
+        - When act_id is a concrete Act identifier (or omitted), the search is scoped
+          to that Act (existing behaviour).
+        - When act_id is "*", the search runs across all configured Acts and merges
+          the per-Act results, ranking by URS.
+        """
+        # Multi-act aggregation path
+        if act_id == "*":
+                k = max(1, min(int(k), 100))
+                offset = max(0, int(offset))
+                acts = [meta.id for meta in list_metadata_acts()]
+                if not acts:
+                        return {
+                                "query_interpretation": {
+                                        "provisions": [],
+                                        "definitions": [],
+                                        "keywords": _normalize_query(query or ""),
+                                        "parsed": None,
+                                        "pseudo_seeds": [],
+                                },
+                                "results": [],
+                                "debug": {
+                                        "mass_captured": 0.0,
+                                        "num_seeds": 0,
+                                        "note": "No acts configured; multi-act search is empty",
+                                        "multi_act": True,
+                                        "act_ids": [],
+                                },
+                                "pagination": {
+                                        "offset": offset,
+                                        "limit": k,
+                                        "total": 0,
+                                        "next_offset": None,
+                                },
+                                "parsed": None,
+                        }
+
+                # Pull a generous slice per Act so we can merge and re-window globally.
+                per_act_results = []
+                interpretations: List[dict] = []
+                debug_entries: List[dict] = []
+                for act in acts:
+                        payload = _unified_search_single_act(
+                                db=db,
+                                query=query,
+                                k=k + offset,
+                                offset=0,
+                                act_id=act,
+                        )
+                        per_act_results.extend(payload.get("results", []))
+                        interpretations.append({
+                                "act_id": act,
+                                "payload": payload.get("query_interpretation", {}),
+                        })
+                        debug_entries.append({
+                                "act_id": act,
+                                **(payload.get("debug") or {}),
+                        })
+
+                # Deduplicate by internal id, keeping the highest URS per provision.
+                merged: Dict[str, dict] = {}
+                for item in per_act_results:
+                        iid = item.get("id")
+                        if not iid:
+                                continue
+                        prev = merged.get(iid)
+                        if not prev or item.get("score_urs", 0) > prev.get("score_urs", 0):
+                                merged[iid] = item
+
+                combined = sorted(merged.values(), key=lambda r: r.get("score_urs", 0), reverse=True)
+                total = len(combined)
+                window = combined[offset:offset + k]
+                next_offset = offset + k if offset + k < total else None
+
+                # Reuse the first non-empty interpretation for top-level metadata.
+                base_interp: dict = {}
+                for entry in interpretations:
+                        candidate = entry.get("payload") or {}
+                        if candidate:
+                                base_interp = candidate
+                                break
+
+                return {
+                        "query_interpretation": base_interp or {
+                                "provisions": [],
+                                "definitions": [],
+                                "keywords": _normalize_query(query or ""),
+                                "parsed": None,
+                                "pseudo_seeds": [],
+                        },
+                        "results": window,
+                        "debug": {
+                                "mass_captured": 0.0,
+                                "num_seeds": 0,
+                                "note": "Multi-act aggregation over per-Act unified search results",
+                                "multi_act": True,
+                                "act_ids": acts,
+                        },
+                        "pagination": {
+                                "offset": offset,
+                                "limit": k,
+                                "total": total,
+                                "next_offset": next_offset,
+                        },
+                        "parsed": base_interp.get("parsed") if base_interp else None,
+                }
+
+        # Single-act behaviour (existing path)
+        return _unified_search_single_act(
+                db=db,
+                query=query,
+                k=k,
+                offset=offset,
+                act_id=act_id,
+        )

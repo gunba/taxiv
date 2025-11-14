@@ -316,7 +316,9 @@ const App: React.FC = () => {
             <SemanticSearchModal
                 isOpen={isSemanticSearchOpen}
                 actId={selectedActId}
+                acts={acts}
                 onClose={handleCloseSemanticSearch}
+                onSelectAct={next => setSelectedActId(next)}
                 onSelectProvision={handleSelectNode}
                 state={semanticSearchState}
                 onStateChange={persistSemanticSearchState}
