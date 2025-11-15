@@ -1,3 +1,20 @@
+## Archived Global Changelog
+
+This file previously carried a mixed stream of frontend, backend, ingestion, MCP, and infra changes. It is now **archived** in favor of per-service changelogs:
+
+* `agents/changelogs/frontend.md`
+* `agents/changelogs/backend.md`
+* `agents/changelogs/ingestion.md`
+* `agents/changelogs/mcp.md`
+
+Going forward, append entries to the appropriate service-specific file(s). When a change spans multiple services, add one short line per affected changelog.
+
+Historical entries prior to the split are preserved below for reference.
+
+---
+
+2025-11-15 - Aligned the repo layout with containers by moving the React/Vite surface under frontend/, relocating Vitest suites next to frontend code, and nesting Python tests under backend/tests and ingest/tests; updated Vite/Vitest/TypeScript config, docs, and test scripts to match, and kept ephemeral artifacts and ingestion outputs ignored by default.
+2025-11-15 - Pruned local-only backups, tmp media check scaffolding, Serena metadata, build caches, and other ephemeral artifacts; moved the README screenshot to docs/assets, documented the container-aligned repo layout and post-work checklist in agents/best_practices.md and agents/frontend.md, and tightened .gitignore to keep transient directories out of version control.
 2025-11-15 - Hardened multi-act unified search to skip failing Acts (with per-Act debug metadata) instead of failing the whole request, removed ampersand-to-\"and\" query normalization in unified search so tokens like \"R&D\" stay intact, documented the localhost:3000 + docker-compose workflow for agents, and updated the semantic search modal error copy to reference the backend API rather than the MCP API.
 2025-11-14 - Scoped ITAA1936 definition extraction strictly to the Section 6 heading (\"6 Interpretation\") so algebraic labels like A/B under later sections (e.g., s 63 Bad debts) no longer populate the global definitions registry, and combined this with a guard in the greedy matcher to skip single-letter terms.
 2025-11-14 - Restored definition highlighting by defaulting UI provision detail requests to include definitions so InteractiveContent can surface green term tokens again for ITAA1997 and other acts.
@@ -19,7 +36,7 @@
 2025-02-14 - Rewired SideNav copy-to-markdown to call the lightweight detail markdown endpoint, added a shared toast provider, and documented the heavyweight export path for future tooling.
 2025-02-14 - Documented that markdown export currently iterates every descendant/reference/definition via individual ProvisionDetail queries, explaining slow copy-to-markdown operations on large selections.
 2025-11-09 - Documented that ingestion must run via `docker compose exec backend` to reuse container dependencies (pgvector, ImageMagick, LibreOffice, etc.) after diagnosing host-side ModuleNotFound errors.
-2025-11-09 - Centralized MCP markdown formatting in the backend, added `format=markdown` support on the provision detail API, and updated the semantic-search modal copy buttons to consume those endpoints.
+2025-11-09 - Centralized MCP markdown formatting in the backend, added `format=markdown` support on the provision detail API, and updated the semantic search modal copy buttons to consume those endpoints.
 2025-11-09 - Aligned the semantic-search modal "Copy MCP JSON" button with the MCP provision_detail response by fetching and copying full provision detail payloads.
 2025-11-09 - Added ~120-char provision snippets (or 'No content') to unified search responses, wiring them through the MCP server and semantic search modal.
 2025-11-09 - Reworded AGENTS.md and all agent guidance docs to tighten tone and clarify mandatory workflows.

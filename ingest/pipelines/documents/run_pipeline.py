@@ -12,6 +12,7 @@ from typing import Iterable, List, Sequence
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from backend.act_metadata import resolve_datasets_config_path
 from backend.database import get_db
 from backend.models.semantic import Document, DocumentChunk
 
@@ -33,7 +34,7 @@ class ParsedDocument:
 
 
 def _resolve_input_dir(dataset_id: str) -> Path:
-    config_path = Path(__file__).resolve().parents[2] / "config" / "datasets.json"
+    config_path = resolve_datasets_config_path()
     meta = json.loads(config_path.read_text(encoding="utf-8"))
     for entry in meta.get("datasets", []):
         if entry.get("id") == dataset_id:

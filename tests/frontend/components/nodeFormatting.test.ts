@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
-import type {HierarchyNode} from '../../types';
-import type {NodeFormattingInput} from '../../utils/nodeFormatting';
-import {formatNodeHeading} from '../../utils/nodeFormatting';
+import type {HierarchyNode} from '@/types';
+import type {NodeFormattingInput} from '@/utils/nodeFormatting';
+import {formatNodeHeading} from '@/utils/nodeFormatting';
 
 describe('formatNodeHeading', () => {
     it('produces section variants with abbreviations and preserves existing titles', () => {

@@ -13,8 +13,8 @@ as binding policy.
 
 4. Prior to writing code:
    a. Read `agents/best_practices.md`.  
-   b. Read every domain-specific guide relevant to the task (e.g., `agents/frontend.md`, `agents/backend.md`,
-      `agents/testing.md`).
+   b. Read every domain-specific guide relevant to the task (e.g., `agents/guides/frontend.md`, `agents/guides/backend.md`,
+      `agents/guides/testing.md`).
 
 5. Treat the `agents/` directory as a first-class surface you own: keep these standards accurate, well-structured, and up to date as you discover new constraints or workflows, and prefer tightening or reorganizing the guidance over duplicating it elsewhere.
 
@@ -23,7 +23,7 @@ as binding policy.
       research.  
    b. Inspect the touched code paths for dead or unused logic, remove it, and call out the cleanup explicitly to the
       user.  
-   c. Append a single-line summary of the work to `agents/changelog.md`.  
+   c. Append a single-line summary of the work to the relevant service-specific changelog(s) under `agents/changelogs/` (for example, `agents/changelogs/frontend.md`, `agents/changelogs/backend.md`, `agents/changelogs/ingestion.md`, or `agents/changelogs/mcp.md`).  
    d. Run every automated test suite impacted by your changes (use `scripts/run-tests.sh` when both stacks move, or the
       narrower `npm run test:frontend` / `npm run test:python` commands) and include the results or blockers in your
       final handoff. If a suite cannot run locally, state why and what was attempted.

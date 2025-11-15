@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 CONFIG_ENV_VAR = "TAXIV_DATASETS_CONFIG"
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "datasets.json"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "datasets.json"
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,14 @@ def _resolve_config_path() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return DEFAULT_CONFIG_PATH
+
+
+def resolve_datasets_config_path() -> Path:
+    """
+    Public helper for resolving the datasets config path so other modules
+    (e.g., ingestion pipelines) can share the same resolution logic.
+    """
+    return _resolve_config_path()
 
 
 def _load_raw_config(config_path: Path) -> dict:

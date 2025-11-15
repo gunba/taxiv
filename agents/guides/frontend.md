@@ -12,18 +12,33 @@
 ## Directory Structure
 
 ```
-/
+frontend/
+├── App.tsx          # Application shell + routing
+├── main.tsx         # Entry point
+├── index.html       # Vite HTML entry
 ├── components/      # Reusable UI primitives
+│   ├── ActSelector.tsx
 │   ├── DetailView.tsx
 │   ├── Icons.tsx
+│   ├── InteractiveContent.tsx
 │   ├── MainContent.tsx
+│   ├── SemanticSearchModal.tsx
 │   └── SideNav.tsx
-├── utils/
-│   └── api.ts       # Backend abstraction layer
-├── types.ts         # Shared TypeScript interfaces
-├── App.tsx          # Application shell + routing
-├── index.tsx        # Entry point
-└── vite.config.ts   # Vite config (proxy, plugins)
+├── utils/           # Frontend helpers
+│   ├── api.ts       # Backend abstraction layer
+│   ├── clipboard.ts # Clipboard helper for exports
+│   └── provisionSort.ts
+└── types.ts         # Shared TypeScript interfaces
+
+tests/frontend/
+├── components/      # Component-focused Vitest suites
+│   ├── InteractiveContent.*.test.tsx
+│   ├── SemanticSearchModal.test.tsx
+│   └── nodeFormatting.test.ts
+├── utils/           # Utility/helper tests
+│   └── provisionSort.test.ts
+├── NavNode.test.tsx # Nav node behavior tests
+└── setupTests.ts    # Vitest/RTL setup
 ```
 
 ## Patterns
@@ -48,3 +63,14 @@
   interactive using regex detection and event delegation.
 * **Error Handling:** `App.tsx` and `SideNav.tsx` implement base loading/error states; extend them before adding new UX
   surface area.
+
+## Repo Layout (Frontend Surface)
+
+The frontend container (`frontend` in `docker-compose.yml`) corresponds to the `frontend/` React/Vite app:
+
+* App shell and entrypoints live under `frontend/` (`App.tsx`, `main.tsx`, `index.html`), with Vite/Vitest config and `package.json` at the repo root.
+* Reusable UI primitives and feature components live under `frontend/components/`.
+* Shared helpers and abstractions live under `frontend/utils/` (e.g., `frontend/utils/api.ts`), with shared interfaces in `frontend/types.ts`.
+* Frontend tests are centralized under `tests/frontend/**`, mirroring the frontend structure.
+
+When adding new frontend behavior, place tests under the corresponding path in `tests/frontend/**` (for example, `tests/frontend/components/` for a new component), and keep imports using the `@` alias to point at `frontend/`.

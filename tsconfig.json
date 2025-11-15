@@ -21,10 +21,14 @@
     "jsx": "react-jsx",
     "paths": {
       "@/*": [
-        "./*"
+        "./frontend/*"
       ]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "frontend",
+    "tests/frontend"
+  ]
 }

@@ -10,7 +10,7 @@
     "test": "npm run test:frontend",
     "test:frontend": "vitest run",
     "test:frontend:watch": "vitest",
-    "test:python": "pytest tests/backend tests/ingest",
+    "test:python": "pytest tests/backend tests/ingestion",
     "test:all": "bash scripts/run-tests.sh"
   },
   "dependencies": {

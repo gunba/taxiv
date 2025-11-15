@@ -31,7 +31,7 @@ Every change must be testable and ship with the relevant coverage.
 
 * Run the suites that cover the code you touched before handing work back:
 	* Frontend or shared TypeScript changes → `npm run test:frontend` (use `npm run test:frontend:watch` while iterating).
-	* Backend/ingest Python changes → `npm run test:python` (`pytest tests/backend tests/ingest` under the hood).
+	* Backend/ingest Python changes → `npm run test:python` (`pytest tests/backend tests/ingestion` under the hood).
 	* Full-stack edits → `scripts/run-tests.sh` to execute both stacks sequentially.
 * Capture the command output (pass/fail) in your final response. If a suite cannot run locally, document the blocker and
   the mitigation you attempted (e.g., missing system dependency, sandbox restriction).

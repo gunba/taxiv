@@ -1,8 +1,8 @@
 import React from 'react';
 import {fireEvent, render, screen} from '@testing-library/react';
 import {describe, expect, it, vi} from 'vitest';
-import InteractiveContent from '../InteractiveContent';
-import type {TaxDataObject} from '../../types';
+import InteractiveContent from '@/components/InteractiveContent';
+import type {TaxDataObject} from '@/types';
 
 vi.mock('react-markdown', () => ({
 	__esModule: true,
@@ -65,4 +65,3 @@ describe('InteractiveContent reference handling', () => {
 		expect(onTermClick).not.toHaveBeenCalled();
 	});
 });
-

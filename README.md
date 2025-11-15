@@ -2,7 +2,7 @@
 
 https://raja-block.bnr.la
 
-![Taxiv application screenshot](./image.png)
+![Taxiv application screenshot](./assets/taxiv-screenshot.png)
 
 A modern, interactive web application for browsing, analyzing, and understanding Australian tax legislation. This
 project utilizes a sophisticated ingestion pipeline (Python, Gemini, NetworkX) to process legislation documents into a
@@ -96,13 +96,13 @@ This process may take time. Subsequent runs will be faster due to LLM caching (`
 
 ### Multi-Act + Document Datasets
 
-Available acts and document datasets are declared in `config/datasets.json`. Each entry defines exclusions, ingest
+Available acts and document datasets are declared in `backend/datasets.json`. Each entry defines exclusions, ingest
 pipelines, and (for documents) the input directory. To onboard a new act, add an entry to the `acts` array, point the
 `ingestion.pipeline` field at the implementing module, and run that module via
 `docker compose exec backend python -m ingest.pipelines.<act>.run_pipeline`.
 
 Case files, rulings, and other standalone documents live in datasets. Populate `ingest/data/documents/<dataset>` with
-JSON/Markdown files (see `config/datasets.json` for the expected folder) and run:
+JSON/Markdown files (see `backend/datasets.json` for the expected folder) and run:
 
 ```bash
 docker compose exec backend python -m ingest.pipelines.documents.run_pipeline

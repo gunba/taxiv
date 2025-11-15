@@ -43,5 +43,7 @@ ingest/media/**/*
 /ingest/output/final/
 *.db
 ingest/data/**/*
-.serena/project.yml
+.serena/
+.pytest_cache/
+__pycache__/
 *.pyc

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+#
+# Full-stack test harness for Taxiv.
+# Runs frontend (Vitest) and backend/ingest (Pytest) suites from the repo root.
 
 set -euo pipefail
 
@@ -13,10 +16,5 @@ cd "$ROOT_DIR"
 log "Running frontend tests (Vitest)"
 npm run test:frontend
 
-PYTEST_ARGS=()
-if [[ $# -gt 0 ]]; then
-	PYTEST_ARGS=("$@")
-fi
-
 log "Running Python tests (pytest)"
-pytest "${PYTEST_ARGS[@]}" tests/backend tests/ingest
+pytest "$@" tests/backend tests/ingestion

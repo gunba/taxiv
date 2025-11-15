@@ -7,7 +7,7 @@ import DetailView from './components/DetailView';
 import {SearchIcon} from './components/Icons';
 import {api, type UnifiedSearchItem} from './utils/api';
 import SemanticSearchModal from './components/SemanticSearchModal';
-import taxivLogo from './taxiv.png';
+import taxivLogo from './assets/taxiv-logo.png';
 import {ToastProvider} from './components/ToastProvider';
 import ActSelector from './components/ActSelector';
 

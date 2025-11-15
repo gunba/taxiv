@@ -1,8 +1,8 @@
 import React from 'react';
 import {act, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import InteractiveContent from '../InteractiveContent';
-import type {TaxDataObject} from '../../types';
+import InteractiveContent from '@/components/InteractiveContent';
+import type {TaxDataObject} from '@/types';
 
 const mockReactMarkdown = vi.fn(({children}: any) => <div data-testid="markdown-chunk">{children}</div>);
 

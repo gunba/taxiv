@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import type {TaxDataObject} from '../../types';
-import {compareProvisions, sortProvisions} from '../provisionSort';
+import type {TaxDataObject} from '@/types';
+import {compareProvisions, sortProvisions} from '@/utils/provisionSort';
 
 const baseNode = (overrides: Partial<TaxDataObject>): TaxDataObject => ({
     internal_id: 'id',

@@ -1,11 +1,11 @@
 import React from 'react';
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {describe, expect, it, vi} from 'vitest';
-import SemanticSearchModal from '../SemanticSearchModal';
-import type {UnifiedSearchItem} from '../../utils/api';
+import SemanticSearchModal from '@/components/SemanticSearchModal';
+import type {UnifiedSearchItem} from '@/utils/api';
 
-vi.mock('../../utils/api', async () => {
-	const actual = await vi.importActual<typeof import('../../utils/api')>('../../utils/api');
+vi.mock('@/utils/api', async () => {
+	const actual = await vi.importActual<typeof import('@/utils/api')>('@/utils/api');
 	return {
 		...actual,
 		unifiedSearch: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('../../utils/api', async () => {
 });
 
 // Re-import after mocking so we get the mocked version
-import {unifiedSearch} from '../../utils/api';
+import {unifiedSearch} from '@/utils/api';
 
 const acts = [
 	{
