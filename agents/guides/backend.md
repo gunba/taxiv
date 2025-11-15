@@ -103,6 +103,8 @@ ingest/
 	  `hierarchy_path_ltree`, renders each node as a compact heading + `content_md`, and appends a deduped definitions
 	  section. This keeps the SideNav copy-to-markdown button to one backend call even when entire chapters (with
 	  definitions) are selected, while leaving the MCP markdown formatter untouched.
+* **Hierarchy Semantics**
+	* Definition provisions are persisted as full `Provision` rows with `type=\"Definition\"` so they can be targeted by defined-term clicks, search, and MCP tools, but `crud.get_hierarchy` filters them out of `/api/provisions/hierarchy/{act_id}` so they never appear as standalone nodes in the main navigation or lazy-loaded provision stream. `search_hierarchy` continues to return definition nodes where they match the search query so the right-hand detail view can surface them directly.
 
 * **Database (LTree)**
 	* `provisions.hierarchy_path_ltree` is the canonical representation for legislative hierarchy.

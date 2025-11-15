@@ -1,4 +1,4 @@
-import React, {Children, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {Children, useCallback, useEffect, useMemo, useState} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {TaxDataObject} from '../types';
@@ -347,12 +347,15 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
         const processedChildren = indentation.consumed ? indentation.children : children;
         const textContent = Children.toArray(processedChildren).join('');
 
-        let markerIndentClass = '';
-        if (!indentation.consumed) {
-            if (/^\s*\(\d+\)/.test(textContent)) markerIndentClass = 'pl-6'; // (1)
-            if (/^\s*\([a-z]\)/.test(textContent)) markerIndentClass = 'pl-12'; // (a)
-            if (/^\s*\([ivx]+\)/.test(textContent)) markerIndentClass = 'pl-[4.5rem]'; // (i)
-        }
+		let markerIndentClass = '';
+		if (!indentation.consumed) {
+			// (1), (23), (1A) – top-level numeric markers (with optional trailing capital)
+			if (/^\s*\(\d+[A-Z]?\)/.test(textContent)) markerIndentClass = 'pl-6';
+			// (a), (b) – single-letter markers
+			if (/^\s*\([a-z]\)/.test(textContent)) markerIndentClass = 'pl-12';
+			// (i), (iv), (aa), (ab) – roman numerals or multi-letter markers (deeper level)
+			if (/^\s*\(([ivx]+|[a-z]{2,})\)/.test(textContent)) markerIndentClass = 'pl-[4.5rem]';
+		}
 
         const classNames = ['mb-2'];
         if (indentation.className) classNames.push(indentation.className);
@@ -398,20 +401,10 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
     const isChunked = totalChunks > 1;
     const initialVisibleChunks = isChunked ? Math.min(INITIAL_CHUNK_COUNT, totalChunks) : totalChunks;
     const [visibleChunks, setVisibleChunks] = useState(initialVisibleChunks);
-    const observerRef = useRef<IntersectionObserver | null>(null);
 
     useEffect(() => {
         setVisibleChunks(initialVisibleChunks);
     }, [initialVisibleChunks]);
-
-    useEffect(() => {
-        return () => {
-            if (observerRef.current) {
-                observerRef.current.disconnect();
-                observerRef.current = null;
-            }
-        };
-    }, []);
 
     const increaseVisibleChunks = useCallback(() => {
         setVisibleChunks(previous => {
@@ -422,35 +415,8 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
         });
     }, [totalChunks]);
 
-    const sentinelCallback = useCallback((node: HTMLDivElement | null) => {
-        if (observerRef.current) {
-            observerRef.current.disconnect();
-            observerRef.current = null;
-        }
-
-        if (!node || !isChunked || visibleChunks >= totalChunks) {
-            return;
-        }
-
-        if (typeof IntersectionObserver === 'undefined') {
-            setVisibleChunks(totalChunks);
-            return;
-        }
-
-        const observer = new IntersectionObserver(entries => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    increaseVisibleChunks();
-                }
-            });
-        }, {rootMargin: '256px 0px'});
-
-        observer.observe(node);
-        observerRef.current = observer;
-    }, [increaseVisibleChunks, isChunked, setVisibleChunks, totalChunks, visibleChunks]);
-
     const renderedChunks = markdownChunks.slice(0, visibleChunks);
-    const shouldRenderSentinel = isChunked && visibleChunks < totalChunks;
+    const hasMoreChunks = isChunked && visibleChunks < totalChunks;
 
     return (
         <>
@@ -473,13 +439,16 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
                     {chunk}
                 </ReactMarkdown>
             ))}
-            {shouldRenderSentinel ? (
-                <div
-                    ref={sentinelCallback}
-                    data-testid="chunk-sentinel"
-                    aria-hidden="true"
-                    className="h-px w-full"
-                />
+            {hasMoreChunks ? (
+                <div className="mt-6 flex justify-center">
+                    <button
+                        type="button"
+                        onClick={increaseVisibleChunks}
+                        className="px-4 py-2 text-sm font-medium rounded-md border border-blue-500 text-blue-300 hover:bg-blue-500/10 hover:text-blue-100 transition-colors"
+                    >
+                        Load More
+                    </button>
+                </div>
             ) : null}
         </>
     );

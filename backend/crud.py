@@ -386,7 +386,12 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
 	# Define a subquery to check for the existence of children efficiently.
 	# This subquery is correlated with the outer query on models.Provision.internal_id
 	children_exists_subq = db.query(ChildProvision.internal_id) \
-		.filter(ChildProvision.parent_internal_id == models.Provision.internal_id) \
+		.filter(
+			ChildProvision.parent_internal_id == models.Provision.internal_id,
+			ChildProvision.act_id == act_id,
+			func.lower(ChildProvision.type) != "definition",
+			~ChildProvision.ref_id.like(f"{act_id}:Definition:%"),
+		) \
 		.exists().label("has_children")
 
 	# Base query for the hierarchy nodes
@@ -398,7 +403,11 @@ def get_hierarchy(db: Session, act_id: str, parent_id: Optional[str]) -> List[Pr
 		models.Provision.sibling_order,
 		# Use the correlated subquery to determine has_children for each row
 		children_exists_subq
-	).filter(models.Provision.act_id == act_id)
+	).filter(
+		models.Provision.act_id == act_id,
+		func.lower(models.Provision.type) != "definition",
+		~models.Provision.ref_id.like(f"{act_id}:Definition:%"),
+	)
 
 	if parent_id:
 		query = query.filter(models.Provision.parent_internal_id == parent_id)

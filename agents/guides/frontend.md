@@ -55,12 +55,16 @@ tests/frontend/
 * **Media Proxy:** Static ingestion artifacts under `/media/...` are forwarded through the same proxy so diagrams render
   during Vite development sessions.
 * **TypeScript:** Maintain strict typing. Avoid `any`. Interfaces in `types.ts` must mirror the backend Pydantic schema.
+* **Enumerated indentation:** `InteractiveContent.tsx` applies Tailwind padding heuristics for lines that begin with markers like `(1)`, `(1A)`, `(a)`, `(aa)`, or `(i)`, mapping top-level numerals, nested numerals-with-letters, letters, and roman/double-letter styles (used by acts such as ITAA 1936) to consistent visual indentation levels.
 
 ## UX/UI
 
 * **Styling:** Dark theme composed via Tailwind utility classes.
 * **Interactivity:** `MainContent.tsx` rewrites markdown renderings at runtime to make definition tokens (e.g., `*term*`)
   interactive using regex detection and event delegation.
+* **Lazy Rendering:** Long content is lazily materialized at two levels:
+  * **Within a provision:** `InteractiveContent.tsx` chunk-renders oversized `content_md` and shows only an initial subset of markdown chunks plus an explicit “Load more of this provision” button; clicking the button reveals additional chunks without relying on scroll position, so users can either read deeper into long provisions (e.g. ITAA 1936 s 6 or ITAA 1997 s 995) or scroll past them.
+  * **Across provisions:** `MainContent.tsx` lazily fetches and appends child provisions based on the `main` scroll container’s position (near-bottom threshold), with per-position gating so that continuous downward scrolling brings in additional provisions without chaining the entire hierarchy at once or requiring an up-then-down bounce.
 * **Error Handling:** `App.tsx` and `SideNav.tsx` implement base loading/error states; extend them before adding new UX
   surface area.
 

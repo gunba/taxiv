@@ -30,8 +30,6 @@ const MainContent: React.FC<MainContentProps> = ({
     const [pendingCount, setPendingCount] = useState(0);
     const [isLoadingChildren, setIsLoadingChildren] = useState(false);
     const [childLoadError, setChildLoadError] = useState<string | null>(null);
-    const [isSentinelVisible, setIsSentinelVisible] = useState(false);
-    const sentinelRef = useRef<HTMLDivElement | null>(null);
     const rootIdRef = useRef<string | null>(null);
     const scrollContainerRef = useRef<HTMLElement | null>(null);
 
@@ -85,40 +83,6 @@ const MainContent: React.FC<MainContentProps> = ({
 
         return () => {
             isCancelled = true;
-        };
-    }, [node]);
-
-    // Observe the sentinel for lazy loading
-    useEffect(() => {
-        const sentinel = sentinelRef.current;
-        const scrollContainer =
-            scrollContainerRef.current ?? (document.querySelector('main') as HTMLElement | null);
-
-        if (!sentinel || !scrollContainer) {
-            return;
-        }
-
-        if (!scrollContainerRef.current) {
-            scrollContainerRef.current = scrollContainer;
-        }
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                const [entry] = entries;
-                if (entry) {
-                    setIsSentinelVisible(entry.isIntersecting);
-                }
-            },
-            {
-                root: scrollContainer,
-                rootMargin: '400px 0px',
-            }
-        );
-
-        observer.observe(sentinel);
-
-        return () => {
-            observer.disconnect();
         };
     }, [node]);
 
@@ -190,12 +154,39 @@ const MainContent: React.FC<MainContentProps> = ({
         }
     }, [isLoadingChildren]);
 
-    // Trigger loading whenever the sentinel is visible and items remain on the stack
+    // Trigger provision loading based on scroll position near the bottom of the main container
     useEffect(() => {
-        if (isSentinelVisible && pendingCount > 0 && !isLoadingChildren) {
-            loadNextProvision();
+        const scrollContainer =
+            scrollContainerRef.current ?? (document.querySelector('main') as HTMLElement | null);
+
+        if (!scrollContainer) {
+            return;
         }
-    }, [isSentinelVisible, pendingCount, isLoadingChildren, loadNextProvision]);
+
+        scrollContainerRef.current = scrollContainer;
+
+        const handleScroll = () => {
+            if (pendingCount <= 0 || isLoadingChildren) {
+                return;
+            }
+
+            const {scrollTop, clientHeight, scrollHeight} = scrollContainer;
+            const bottomThreshold = 800;
+            const isNearBottom = scrollTop + clientHeight >= scrollHeight - bottomThreshold;
+
+            if (!isNearBottom) {
+                return;
+            }
+
+            loadNextProvision();
+        };
+
+        scrollContainer.addEventListener('scroll', handleScroll);
+
+        return () => {
+            scrollContainer.removeEventListener('scroll', handleScroll);
+        };
+    }, [pendingCount, isLoadingChildren, loadNextProvision]);
 
     // Ensure the first child loads immediately after a node is selected, even if the
     // sentinel hasn't yet become visible (for example when the initial content is
@@ -291,8 +282,6 @@ const MainContent: React.FC<MainContentProps> = ({
                     </div>
                 </article>
             ))}
-
-            <div ref={sentinelRef} className="h-1"/>
 
             {isLoadingChildren && (
                 <div className="py-4 text-center text-gray-400 text-sm">Loading additional provisions...</div>
