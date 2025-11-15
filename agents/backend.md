@@ -73,6 +73,7 @@ ingest/
 	  `ingest/core/relatedness_indexer.upsert_provision_embeddings`, which now feeds chunked text (2.2k char chunks / 350 char overlap by
 	  default) through Qwen and averages normalized chunk vectors.
 	* Unified semantic search relies on cached `relatedness_fingerprint` rows (see `backend/services/relatedness_engine.py`). After bumping the graph version or truncating fingerprints, the next query for each provision recomputes `_expand_local_subgraph` (citations, hierarchy, term co-usage, ANN neighbors) before writing the cache, which can make early searches take a few seconds until hot.
+	* Query normalization in `backend/services/unified_search._normalize_query` is intentionally minimal: it only collapses slashes and whitespace and no longer rewrites ampersands (e.g., `R&D` stays `R&D`) to avoid introducing spurious lexical matches from over-clever text munging.
 	* Always declare the operator class (`vector_l2_ops`) when creating pgvector HNSW indexes; PostgreSQL rejects the DDL
 	  otherwise.
 	* Run `python -m backend.manage_embeddings resize-vector --dim 1024` after pulling this change (or whenever switching embedding
@@ -112,6 +113,10 @@ ingest/
 	* Acquire database sessions via FastAPI dependency injection (`get_db`).
 	* Centralize persistence logic inside `crud.py`.
 	* `GET /api/provisions/detail/{internal_id}` accepts `?format=markdown` to return the exact MCP markdown surface (default remains JSON).
+	* The semantic search modal and the MCP server both consume the same HTTP API surface:
+		+ The modal calls `/api/search/unified` and `/api/provisions/detail/{internal_id}` via `utils/api.ts`.
+		+ The MCP server (`mcp_server/server.py`) calls the same endpoints over HTTP and exposes them as tools (`semantic_search`, `provision_detail`, `batch_provisions`).
+	* Any behavioral change to `/api/search/unified` or `/api/provisions/detail/{internal_id}` therefore affects both the UI modal and the MCP tools; keep this coupling in mind when adjusting response shapes, error handling, or query semantics.
 
 * **Type Hinting**
 	* Enforce Python type hints throughout backend and ingestion code.
@@ -150,11 +155,8 @@ ingest/
 
 ## Capacity Planning & Deployment
 
-* **Qwen3 model footprint:** `ingest/core/embedding_backend.py` resolves CPU deployments to `torch.float32`, so loading `Qwen/Qwen3-Embedding-0.6B` consumes ~2.5 GB for weights plus another ~0.5 GB for tokenizer buffers and activations during inference. Budget at least 3 GB of resident RAM for the embedding worker alone, or pin it to GPU/MPS so the backend + DB can stay resident on CPU RAM.
-* **4 vCPU / 8 GB boxes:** PostgreSQL with pgvector + HNSW typically sits around 2 GB once indexes are warm, while FastAPI + MCP stay under 1 GB combined. That leaves <2 GB headroom on an 8 GB VPS, so embedding bursts will force swapping unless you: (a) move Postgres to a managed service, (b) run embeddings in a separate worker (Celery/cron) container with a higher-memory plan, or (c) provision swap and accept slower ingestion.
-* **Chunk throughput expectations:** Each provision/definition is chunked into ~2.2 k-character windows with 350-character overlap (`README.md` and `ingest/core/relatedness_indexer.py`). On CPU-only hosts, expect roughly 20–40 chunks/sec for Qwen3, so embedding a fresh act (or hundreds of lazy case-law documents) can take many minutes. Batch the lazy jobs and cap `RELATEDNESS_EMBED_BATCH` to 16–24 if you hit RAM ceilings; throughput drops linearly but keeps the worker alive.
-* **Scaling case law:** 2 000 case PDFs averaging 8 k characters yield ~9 chunks/document (~18 000 total vectors). At 1024-dim pgvector entries that’s ~70 MB on disk, but HNSW indexes roughly double that, so plan for ~150 MB extra per 2 000 docs plus WAL overhead. Vacuum/analyze between large ingests so the ANN index stays balanced.
-* **Latency targets:** Relatedness lookups already cache vectors in `_SEM_VECTOR_CACHE` (`backend/services/relatedness_engine.py`), so once embeddings exist, query latency is dominated by Postgres ANN search. Keep embeddings hot by pre-warming frequently accessed provisions after deploys, otherwise the first few lazily generated vectors will block search for several seconds while the HF backend spins up on CPU.
-* **Backend concurrency:** `scripts/start-backend.sh` drives uvicorn with `${UVICORN_WORKERS:-4}` processes (dropping to a single `--reload` worker when `UVICORN_RELOAD=1`). Each worker uses the SQLAlchemy pool size defined by `DB_POOL_SIZE`/`DB_POOL_MAX_OVERFLOW`, so the default four-worker plan opens up to 80 Postgres connections—ensure the DB `max_connections` (set via compose to 200) remains above that ceiling. FastMCP runs in its own container and no longer imports app internals; it shells out to the backend HTTP API and formats responses via `mcp_server/mcp_formatter.py`, so deployment only needs the backend endpoint reachable over the Compose network.
-
-	This verifies the abbreviated search payload and the enriched provision detail response (definitions plus references).
+* **Resource profile (summary):**
+	* Qwen3 embeddings and pgvector indexes are RAM-heavy; budget ~3 GB for the embedding worker alone and keep Postgres + FastAPI under separate limits.
+	* ANN search latency is dominated by Postgres once embeddings exist; `_SEM_VECTOR_CACHE` in `relatedness_engine` keeps hot vectors in memory.
+* **Concurrency:** `scripts/start-backend.sh` drives uvicorn with `${UVICORN_WORKERS:-4}` processes and SQLAlchemy pools sized by `DB_POOL_SIZE` / `DB_POOL_MAX_OVERFLOW`. The default four-worker plan can open up to 80 DB connections; keep Postgres `max_connections` above that ceiling.
+* **Deployment details:** for full VPS and reverse-proxy guidance (TLS, static builds, MCP connector wiring), see `agents/deployment.md`. Use that doc as the source of truth for production sizing, snapshot/restore, and Caddy configuration.

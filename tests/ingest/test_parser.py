@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+import docx
 
 from ingest.pipelines.itaa1997 import parser
 
@@ -390,3 +391,69 @@ def test_greedy_definition_matching_ignores_markdown_links(definition_state_clea
 	result = parser.find_defined_terms_in_text(text)
 
 	assert result == {'tax offset'}
+
+
+def test_single_letter_definitions_are_not_greedily_matched(definition_state_cleanup):
+	_configure_definitions(['A', 'B', 'tax'])
+
+	text = 'A taxpayer pays tax under this Act.'
+	result = parser.find_defined_terms_in_text(text)
+
+	# Single-letter definitions like "A" or "B" should not be auto-matched by
+	# the greedy matcher to avoid turning every article/list marker into a
+	# definition usage. Longer terms (e.g., "tax") remain matched.
+	assert 'tax' in result
+	assert 'A' not in result
+	assert 'B' not in result
+
+
+def test_process_document_builds_correct_hierarchy_for_headings(tmp_path, monkeypatch):
+	# Build a minimal DOCX with Parts and Divisions to exercise the hierarchy stack.
+	doc = docx.Document()
+	# Part I (level 2)
+	p1 = doc.add_paragraph("Part I—Preliminary")
+	p1.style = doc.styles["Heading 2"]
+	# Content under Part I
+	doc.add_paragraph("Intro text for Part I")
+	# Division 1 under Part I (level 3)
+	d1 = doc.add_paragraph("Division 1—General")
+	d1.style = doc.styles["Heading 3"]
+	doc.add_paragraph("Content for Division 1")
+	# Division 2 under Part I (same level as Division 1)
+	d2 = doc.add_paragraph("Division 2—Miscellaneous")
+	d2.style = doc.styles["Heading 3"]
+	doc.add_paragraph("Content for Division 2")
+	# Part II (same level as Part I)
+	p2 = doc.add_paragraph("Part II—Liability to tax")
+	p2.style = doc.styles["Heading 2"]
+	doc.add_paragraph("Intro text for Part II")
+
+	doc_path = tmp_path / "hierarchy_sample.docx"
+	doc.save(doc_path)
+
+	custom = parser.Config()
+	custom.STYLE_MAP = {
+		"Heading 1": 1,
+		"Heading 2": 2,
+		"Heading 3": 3,
+		"Heading 4": 4,
+		"Heading 5": 5,
+	}
+
+	# Avoid touching real media directories in this unit test.
+	monkeypatch.setattr(parser, "_initialize_media_context", lambda _filepath: None)
+	monkeypatch.setattr(parser, "_clear_media_context", lambda: None)
+
+	with parser.use_config(custom):
+		structure = parser.process_document(str(doc_path), pass_num=2, executor=None, futures=None)
+
+	assert [node["title"] for node in structure] == [
+		"Part I—Preliminary",
+		"Part II—Liability to tax",
+	]
+
+	part_i_children = [child["title"] for child in structure[0]["children"]]
+	assert part_i_children == [
+		"Division 1—General",
+		"Division 2—Miscellaneous",
+	]

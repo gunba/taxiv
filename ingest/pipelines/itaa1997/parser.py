@@ -481,6 +481,14 @@ def _generate_definition_variants(term: str) -> List[str]:
 	variants: List[str] = []
 	seen: Set[str] = set()
 
+	# Avoid generating greedy matches for extremely short terms (e.g., "A", "B"),
+	# which tend to collide with ordinary language and list markers like "(a)".
+	# The definition itself is still preserved in DEFINITION_REGISTRY; we just
+	# opt out of auto-linking these via the greedy matcher.
+	alpha = re.sub(r"[^A-Za-z0-9]+", "", base)
+	if len(alpha) < 2:
+		return []
+
 	for candidate in [base, *sorted(_generate_plural_variants(base), key=len, reverse=True)]:
 		normalized = candidate.strip()
 		if not normalized:
@@ -857,7 +865,8 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 	try:
 		# Setup for hierarchy tracking
 		structure = []
-		hierarchy_stack = [structure]  # Stack starts with the root list
+		# Stack of section dicts (no root list entry). Each item must carry a 'level'.
+		hierarchy_stack = []
 		current_section = None
 
 		# Setup for definition tracking
@@ -942,24 +951,29 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 					"children": []
 				}
 
-				# Manage hierarchy stack: pop until the correct parent level is reached
-				while len(hierarchy_stack) > level:
+				# Manage hierarchy stack: pop until we find a parent with a lower level.
+				# This ensures that headings with the same level become siblings and
+				# that deeper levels nest under the closest shallower ancestor.
+				while hierarchy_stack and hierarchy_stack[-1].get("level", 0) >= level:
 					popped_section = hierarchy_stack.pop()
 					# CRITICAL CHANGE: Call finalize_section with executor and futures
 					if pass_num == 2:
 						# Generate hierarchy context (list of parent ref_ids)
-						hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
-											 isinstance(item, dict) and item.get("ref_id")]
+						hierarchy_context = [
+							item.get("ref_id")
+							for item in hierarchy_stack
+							if item.get("ref_id")
+						]
 						# Pass the executor and futures list to the finalizer
 						finalize_section(popped_section, hierarchy_context, executor, futures)
 
 				# Add the new section to the hierarchy
 				if pass_num == 2:
-					parent_container = hierarchy_stack[-1]
-					if isinstance(parent_container, list):
-						parent_container.append(new_section)
-					elif isinstance(parent_container, dict) and "children" in parent_container:
+					if hierarchy_stack:
+						parent_container = hierarchy_stack[-1]
 						parent_container["children"].append(new_section)
+					else:
+						structure.append(new_section)
 
 					hierarchy_stack.append(new_section)
 					current_section = new_section
@@ -1081,10 +1095,13 @@ def process_document(filepath, pass_num=1, executor: Optional[ThreadPoolExecutor
 
 		# Finalize remaining sections on the stack after the document ends
 		if pass_num == 2:
-			while len(hierarchy_stack) > 1:
+			while hierarchy_stack:
 				popped_section = hierarchy_stack.pop()
-				hierarchy_context = [item.get("ref_id") for item in hierarchy_stack[1:] if
-									 isinstance(item, dict) and item.get("ref_id")]
+				hierarchy_context = [
+					item.get("ref_id")
+					for item in hierarchy_stack
+					if item.get("ref_id")
+				]
 				# Pass the executor and futures list to the finalizer
 				finalize_section(popped_section, hierarchy_context, executor, futures)
 

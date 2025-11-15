@@ -38,6 +38,11 @@ Every change must be testable and ship with the relevant coverage.
 * When adding new behavior, extend or author tests in the same change so the regression surface grows alongside the
   feature.
 
+## Runtime Environment for Agents
+
+* The default local UI endpoint is `http://localhost:3000`. Vite proxies `/api` from the frontend container to the backend (`http://localhost:8000`) so browser and Playwright tests can always hit the same origin.
+* If `http://localhost:3000` is not reachable, agents may start the stack with `docker compose up -d frontend backend db` from the repo root; once the containers are healthy, both the UI (`:3000`) and backend (`:8000`) should be available for HTTP-based tests (curl, Playwright MCP, etc.).
+
 ## Playwright MCP UI Smoke Tests
 
 * Use the Playwright MCP tools when you need an end-to-end sanity check of the running UI (especially around semantic search or act selection) instead of relying solely on unit tests.

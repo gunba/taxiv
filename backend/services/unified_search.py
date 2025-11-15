@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
@@ -22,6 +23,8 @@ from backend.services.relatedness_engine import (
 )
 from backend.services.search_filters import is_excluded_provision
 from backend.services.provision_tokens import parse_flexible_token
+
+logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------
 # Robust query handling
@@ -71,17 +74,16 @@ def build_snippet(content_md: str | None, limit: int = SNIPPET_LIMIT) -> str:
 
 
 def _normalize_query(text: str) -> str:
-        # General, act-agnostic normalization. Avoid custom synonym lists.
-        # - unify ampersand to "and"
-        # - collapse whitespace
+        # General, act-agnostic normalization. Avoid clever or semantic rewrites.
+        # - preserve ampersands and other intra-token punctuation (e.g., "R&D")
+        # - collapse slashes and whitespace
         # - keep hyphens (needed for section ids)
-        normalized = text.replace("&", " and ")
-        normalized = re.sub(r"[\/]+", " ", normalized)
+        normalized = re.sub(r"[\/]+", " ", text)
         normalized = re.sub(r"\s+", " ", normalized).strip()
         return normalized
 
 
-RE_TS_TOKEN = re.compile(r"[0-9a-zA-Z][0-9a-zA-Z\-]*")
+RE_TS_TOKEN = re.compile(r"[0-9a-zA-Z][0-9a-zA-Z&\-]*")
 
 
 def _extract_tsquery_terms(normalized: str, max_terms: int = TSQUERY_OR_MAX_TERMS) -> List[str]:
@@ -101,10 +103,36 @@ def _extract_tsquery_terms(normalized: str, max_terms: int = TSQUERY_OR_MAX_TERM
         return [term for _, term in ordered]
 
 
+def _escape_tsquery_term(term: str) -> str:
+        """
+        Escape tsquery operator characters inside a single-quoted lexeme.
+        This keeps tokens like \"R&D\" syntactically safe in to_tsquery while
+        preserving their surface form as much as possible.
+        """
+        if not term:
+                return term
+        # Escape backslash first so subsequent escapes are unambiguous
+        term = term.replace("\\", "\\\\")
+        specials = set("&|!():")
+        escaped_chars: List[str] = []
+        for ch in term:
+            if ch in specials:
+                escaped_chars.append("\\" + ch)
+            else:
+                escaped_chars.append(ch)
+        return "".join(escaped_chars)
+
+
 def _build_tsquery_or(terms: List[str]) -> str:
         if not terms:
                 return ""
-        return " | ".join(f"'{term}':*" for term in terms)
+        parts: List[str] = []
+        for term in terms:
+                if not term:
+                        continue
+                safe = _escape_tsquery_term(term)
+                parts.append(f"'{safe}':*")
+        return " | ".join(parts)
 
 
 def _lookup_ref(db: Session, kind: str, ident: str, *, act_id: str) -> str | None:
@@ -311,6 +339,48 @@ LIMIT :limit
         return results
 
 
+def _filter_lexical_candidates_for_terms(
+        db: Session,
+        lex_candidates: Dict[str, float],
+        *,
+        act_id: str,
+        terms: List[str],
+) -> Dict[str, float]:
+        """
+        Restrict lexical candidates to provisions that actually contain at least one
+        of the query terms in their title or content. This prevents structurally central
+        but semantically irrelevant sections (e.g., generic admin provisions) from
+        becoming pseudo-seeds for narrow lexical queries like \"R&D feedstock\".
+        """
+        if not lex_candidates or not terms:
+                return lex_candidates
+        ids = list(lex_candidates.keys())
+        rows = db.query(
+                Provision.internal_id,
+                Provision.title,
+                Provision.content_md,
+        ).filter(
+                Provision.internal_id.in_(ids),
+                Provision.act_id == act_id,
+        ).all()
+        meta = {row.internal_id: row for row in rows}
+        terms_lower = [term.lower() for term in terms if term]
+
+        def _has_term(row) -> bool:
+                text = f"{row.title or ''} {row.content_md or ''}".lower()
+                return any(term in text for term in terms_lower)
+
+        filtered: Dict[str, float] = {}
+        for iid, score in lex_candidates.items():
+                row = meta.get(iid)
+                if not row:
+                        continue
+                if not _has_term(row):
+                        continue
+                filtered[iid] = score
+        return filtered
+
+
 def _minmax_scale(values: List[float]) -> Dict[int, float]:
         if not values:
                 return {}
@@ -374,6 +444,20 @@ def _unified_search_single_act(
                 if not is_excluded_provision(act_id=resolved_act, provision_id=iid)
         }
 
+        # Restrict lexical candidates to provisions that actually contain at least one
+        # non-trivial query term (3+ chars) in their title or content. This keeps generic
+        # sections from becoming high-scoring pseudo-seeds when an Act has no real lexical
+        # signal for a query.
+        keyword_source = interpretation.get("keywords") or norm
+        raw_terms = _extract_tsquery_terms(keyword_source)
+        content_terms = [term for term in raw_terms if len(term) >= 3]
+        lex_candidates = _filter_lexical_candidates_for_terms(
+                db,
+                lex_candidates,
+                act_id=resolved_act,
+                terms=content_terms,
+        )
+
         # If no explicit seeds, derive from lexical
         if not seed_weights and lex_candidates:
                 top_seed_candidates = list(lex_candidates.items())[:SEED_TOP]
@@ -385,7 +469,7 @@ def _unified_search_single_act(
                         if weight > 0:
                                 seed_weights[iid] = seed_weights.get(iid, 0.0) + weight
 
-        # If still no seeds, return lexical top as results (fallback)
+        # If still no seeds and no lexical support, return empty (no seeds)
         if not seed_weights and not lex_candidates:
                 payload = {
                         "query_interpretation": interpretation,
@@ -658,14 +742,26 @@ def unified_search(
                 per_act_results = []
                 interpretations: List[dict] = []
                 debug_entries: List[dict] = []
+                errors: List[Tuple[str, Exception]] = []
                 for act in acts:
-                        payload = _unified_search_single_act(
-                                db=db,
-                                query=query,
-                                k=k + offset,
-                                offset=0,
-                                act_id=act,
-                        )
+                        try:
+                                payload = _unified_search_single_act(
+                                        db=db,
+                                        query=query,
+                                        k=k + offset,
+                                        offset=0,
+                                        act_id=act,
+                                )
+                        except Exception as exc:  # pragma: no cover - exercised via higher-level tests
+                                errors.append((act, exc))
+                                logger.exception("Unified search failed for act %s", act)
+                                debug_entries.append({
+                                        "act_id": act,
+                                        "failed": True,
+                                        "error": str(exc),
+                                })
+                                continue
+
                         per_act_results.extend(payload.get("results", []))
                         interpretations.append({
                                 "act_id": act,
@@ -675,6 +771,12 @@ def unified_search(
                                 "act_id": act,
                                 **(payload.get("debug") or {}),
                         })
+
+                # If every per-Act search failed, bubble up the first error so the caller
+                # can surface a clear failure instead of a silent empty result set.
+                if not per_act_results and errors:
+                        _, first_exc = errors[0]
+                        raise first_exc
 
                 # Deduplicate by internal id, keeping the highest URS per provision.
                 merged: Dict[str, dict] = {}
@@ -714,6 +816,7 @@ def unified_search(
                                 "note": "Multi-act aggregation over per-Act unified search results",
                                 "multi_act": True,
                                 "act_ids": acts,
+                                "per_act": debug_entries,
                         },
                         "pagination": {
                                 "offset": offset,

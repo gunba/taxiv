@@ -110,13 +110,13 @@ const SemanticSearchModal: React.FC<SemanticSearchModalProps> = ({
 			onStateChange({query, results: newResults});
 		} catch (err) {
 			console.error('Semantic search failed:', err);
-			setError('Semantic search failed. Ensure the backend MCP API is reachable.');
+			setError('Semantic search failed. Ensure the backend API is reachable.');
 			setResults([]);
 			onStateChange({query, results: []});
 		} finally {
 			setIsLoading(false);
 		}
-	}, [actId, onStateChange, query, scope]);
+	}, [onStateChange, query, scope]);
 
 	const handleSubmit = useCallback(
 		(event: React.FormEvent) => {

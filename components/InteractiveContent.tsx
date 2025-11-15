@@ -189,18 +189,20 @@ const InteractiveContent: React.FC<InteractiveContentProps> = ({node, onTermClic
 
         const items: ClickableItem[] = [];
 
-        // 1. Handle References (using snippet and target_ref_id)
+        // 1. Handle References (using snippet and target_ref_id / target_internal_id)
         node.references_to.forEach(ref => {
             // We rely on the snippet being the exact text to highlight.
             if (ref.snippet && ref.target_ref_id) {
                 const targetsSameAct = ref.target_ref_id.startsWith(node.act_id);
+                const hasInternalTarget = !!ref.target_internal_id;
+                const isInternal = hasInternalTarget || targetsSameAct;
 
-                if (targetsSameAct && !ref.target_title) {
-                    // Skip unresolved internal references lacking target title data.
+                // Skip unresolved same-act references that have neither title nor an internal target.
+                if (isInternal && !ref.target_title && !hasInternalTarget) {
                     return;
                 }
 
-                if (!targetsSameAct) {
+                if (!isInternal) {
                     const query = encodeURIComponent(ref.target_ref_id.replace(/[:_-]+/g, ' '));
                     const href = `https://www.google.com/search?q=${query}`;
 

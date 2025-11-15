@@ -59,7 +59,9 @@ export const api = {
         if (options?.includeChildren) {
             url.searchParams.append('include_children', '1');
         }
-        if (options?.includeDefinitions) {
+        // Default to including definitions for interactive UX unless explicitly disabled.
+        const includeDefinitions = options?.includeDefinitions !== false;
+        if (includeDefinitions) {
             url.searchParams.append('include_definitions', '1');
         }
         if (options?.includeReferences) {

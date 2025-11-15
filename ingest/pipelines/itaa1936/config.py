@@ -38,7 +38,9 @@ class Config:
 
 	DEFINITIONS_VOLUME = 1
 	DEFINITION_SECTION_LEVEL = 5
-	DEFINITION_SECTION_PREFIXES = ["6", "Section 6"]
+	# Restrict Section 6 definitions to the actual "6 Interpretation" heading,
+	# not any section that merely starts with "6" (e.g., "63  Bad debts").
+	DEFINITION_SECTION_PREFIXES = ["6 ", "Section 6"]
 	DEFINITION_PROGRESS_LABEL = "Section 6"
 	DEFINITION_ANCHOR_REF_ID = f"{ACT_ID}:Section:6"
 	DEFINITIONS_INTERMEDIATE_FILENAME = "definitions_section6_intermediate.json"

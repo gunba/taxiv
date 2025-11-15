@@ -140,7 +140,15 @@ const App: React.FC = () => {
 
     // Function to fetch details by Ref ID (for InteractiveContent references)
     const fetchDetailContentByRefId = useCallback(async (refId: string) => {
-        const actId = mainContentData?.act_id || selectedActId;
+        let actId = mainContentData?.act_id || selectedActId;
+        // If the refId is fully qualified (e.g., ITAA1936:Section:6),
+        // prefer the act prefix from the reference itself so cross-act
+        // links resolve to the correct dataset.
+        const prefix = refId.split(':', 1)[0];
+        if (prefix && prefix !== actId) {
+            actId = prefix;
+        }
+
         if (!actId) {
             setDetailViewContent({
                 type: 'error',

@@ -16,7 +16,9 @@ as binding policy.
    b. Read every domain-specific guide relevant to the task (e.g., `agents/frontend.md`, `agents/backend.md`,
       `agents/testing.md`).
 
-5. Before returning the task to the user:
+5. Treat the `agents/` directory as a first-class surface you own: keep these standards accurate, well-structured, and up to date as you discover new constraints or workflows, and prefer tightening or reorganizing the guidance over duplicating it elsewhere.
+
+6. Before returning the task to the user:
    a. Update the applicable documentation with any **material** discoveries so future agents do not repeat the same
       research.  
    b. Inspect the touched code paths for dead or unused logic, remove it, and call out the cleanup explicitly to the
